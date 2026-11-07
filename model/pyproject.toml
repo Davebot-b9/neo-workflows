@@ -8,11 +8,18 @@ dependencies = [
     "grpcio-tools==1.85.1",
     "grpcio-health-checking==1.85.1",
     "protobuf==7.36.2",
+    # Fase 2: OneJev-0.8B (System One abierto, Apache 2.0) vía qev.
+    # Instalado desde git, fijado a un commit (no hay release en PyPI con
+    # este nombre: el "qev" de PyPI es un proyecto distinto, no relacionado).
+    "qev[torch] @ git+https://github.com/OmniJev/OneJev.git@31678bc3ad1c980a9e416e4902cd2e4c8ffc02f5",
+    "torch==2.15.0",
+    "torchvision==0.29.2",
+    "transformers==5.22.2",
+    "accelerate==1.15.0",
+    "safetensors==0.8.0",
 ]
 
-# Fase 2/3: una vez elegido el modelo System One (pregunta abierta con Oscar),
-# se agregan aquí torch + transformers + peft con versión fija, compatible con
-# la GPU objetivo. No se instalan en la Fase 0.
+# Fase 3: fine-tuning LoRA agrega peft aquí, una vez cerrada la Fase 2.
 
 [dependency-groups]
 dev = [

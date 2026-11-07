@@ -14,17 +14,26 @@ service ModelService {
 }
 
 // Forma System One: estado + preguntas tipadas -> respuestas con probabilidad.
-// Imita la API de TypeSafe para que Jev y el modelo local compartan contrato.
+// Imita la API de TypeSafe (verificada contra el código fuente de qev, la
+// librería de OneJev: ver CLAUDE.md) para que Jev y el modelo local
+// compartan contrato.
 message DecideRequest {
   string model = 1; // versión fija, nunca "latest"
   string state = 2;
   map<string, Question> questions = 3;
 }
 
+// La forma de criteria depende de type: "choice" usa choice_criteria (opción
+// -> descripción); "score" usa score_levels, una lista ORDENADA de niveles
+// (el índice importa: score es el valor esperado sobre esas posiciones);
+// "noul" usa noul_true/noul_false, ambos opcionales.
 message Question {
   string type = 1; // "choice" | "score" | "noul"
   string instructions = 2;
-  map<string, string> criteria = 3; // opción -> descripción (choice/score)
+  map<string, string> choice_criteria = 3;
+  repeated string score_levels = 4;
+  string noul_true = 5;
+  string noul_false = 6;
 }
 
 message DecideResponse {
@@ -33,15 +42,37 @@ message DecideResponse {
   Usage usage = 3;
 }
 
+// Un Answer trae exactamente una de las tres formas, según el type de su
+// Question. noul no tiene un campo confidence propio en el API real (se
+// deriva de qué tan lejos está noul de 0.5); choice y score sí lo traen.
 message Answer {
-  map<string, double> probabilities = 1; // noul: {"true": p}
-  double confidence = 2;
+  oneof kind {
+    NoulAnswer noul = 1;
+    ChoiceAnswer choice = 2;
+    ScoreAnswer score = 3;
+  }
+}
+
+message NoulAnswer {
+  double noul = 1; // probabilidad de "true"
+}
+
+message ChoiceAnswer {
+  string choice = 1; // opción ganadora
+  map<string, double> probabilities = 2; // opción -> probabilidad
+  double confidence = 3;
+}
+
+message ScoreAnswer {
+  double score = 1; // valor esperado sobre los índices de score_levels
+  map<string, string> legend = 2; // índice ("0","1",...) -> nivel
+  map<string, double> probabilities = 3; // índice -> probabilidad
+  double confidence = 4;
 }
 
 message Usage {
-  uint32 prompt_tokens = 1;
-  uint32 completion_tokens = 2;
-  uint32 latency_ms = 3;
+  uint32 input_tokens = 1;
+  uint32 output_tokens = 2;
 }
 
 // Fine-tuning LoRA.

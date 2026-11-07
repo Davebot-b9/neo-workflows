@@ -1,8 +1,9 @@
-# Workflow de ejemplo para la Fase 0. Categorías y umbrales por validar con Oscar.
+# Workflow de ejemplo. Categorías y umbrales por validar con Oscar (son un
+# placeholder razonable, no una decisión final — ver CLAUDE.md).
 id: clasificar-documento
 version: 1
 provider: local # local | jev
-model: "onejev-4b@fase0-sim" # para Jev, por ejemplo jev-1.13. Nunca "latest".
+model: "OmniJev/OneJev-0.8B@c02e305" # versión fija (sha corto de HF). Nunca "latest".
 search:
   top_k: 5
 state_template: |

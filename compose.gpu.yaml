@@ -1,8 +1,10 @@
 name: neo-workflows
 
-# Overlay con GPU para neo-model. Requiere Docker Desktop con backend WSL2 y
-# el NVIDIA Container Toolkit expuesto a los contenedores. Sin esto, las
-# Fases 0 a 2 corren bien en CPU; entrenar en la Fase 3 sí necesita GPU.
+# Overlay con GPU para neo-model. Probado en esta máquina (RTX 4060, 8GB):
+# `docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi`
+# la ve bien. Sin esto, OneJev-0.8B corre en CPU (lento, pero funciona para
+# las Fases 0-1); desde la Fase 2 se recomienda GPU, y la Fase 3
+# (fine-tuning) sí la necesita.
 services:
   neo-model:
     environment:

@@ -36,7 +36,12 @@ El brief llama a los servicios `web`, `api`/`neo-api`, `neo-vector`,
 - Front → `neo-api`: HTTP (comandos) + SSE (eventos), ver tabla de rutas en el brief (`POST /api/runs`, `GET /api/runs/{id}/events`, `POST /api/jobs/finetune`, `GET /api/jobs/{id}/events`, `GET /api/workflows`, `GET /healthz`).
 - `neo-api` → `neo-vector` / `neo-model`: gRPC puro (no Connect), definido en `proto/neo/v1/*.proto`. Va en texto plano (h2c): `back/internal/grpcconn` arma el cliente HTTP/2 sin TLS que esto necesita.
 - La forma de una decisión imita la API System One (`DecideRequest`/`DecideResponse` en `proto/neo/v1/model.proto`) para que Jev y el modelo local sean intercambiables sin tocar la lógica.
-- **TODO bloqueante antes de la Fase 2**: confirmar contra docs.typesafe.ai los campos exactos de `choice` y `score` (ver `back/internal/provider/jev/jev.go`, que por ahora asume los mismos nombres que el proto interno).
+- **`Answer` es un oneof** (`noul` | `choice` | `score`), no un tipo genérico con `probabilities`+`confidence` para los tres. Verificado contra el código fuente real de `qev` (la librería de OneJev, `qev/schema.py` y `qev/answers.py` en github.com/OmniJev/OneJev — dice seguir el OpenAPI público de TypeSafe y está comprobado contra respuestas reales de Jev, MAE 0.013 en choice y 0.005 en score):
+  - `noul`: solo `{noul: float}` — sin `probabilities` ni `confidence` propios. La cascada usa `EffectiveConfidence()` (`back/internal/provider/provider.go`), que deriva `abs(2*noul-1)`.
+  - `choice`: `{choice: string, probabilities: {...}, confidence: float}`.
+  - `score`: `{score: float, legend: {...}, probabilities: {...}, confidence: float}`. `Question.score_levels` es una **lista ordenada** (el índice es el valor), no un mapa como `choice_criteria`.
+  - `Usage` es `{input_tokens, output_tokens}`, no `{prompt_tokens, completion_tokens, latency_ms}` — la latencia la mide Go por su cuenta (`stageDecide` en `runs/service.go`), no viaja en el contrato.
+  - Este era el TODO bloqueante de la Fase 0; se corrigió en la Fase 2 antes de conectar un modelo real, con `proto/neo/v1/model.proto`, el código Go (`provider`, `provider/jev`, `provider/local`, `runs`) y los stubs Python regenerados en el mismo cambio.
 
 ## Versiones fijadas (verificadas al crear el repo, nov 2026)
 
@@ -52,7 +57,7 @@ Verificadas contra fuentes reales (go.dev/dl, endoflife.date, crates.io, PyPI, n
 | buf | 1.75.0 | usado puntualmente vía `go install`, ver abajo |
 | Python | 3.12.9 (ya instalado en la máquina) | `model/.python-version` |
 
-Dependencias de cada servicio: ver `back/go.mod`, `vector/Cargo.toml`, `model/pyproject.toml`, `front/package.json`. De la Fase 1: `fastembed` 7.6.1, `usearch` 2.26.6, `rayon` 1.12.0 (crates.io, verificado).
+Dependencias de cada servicio: ver `back/go.mod`, `vector/Cargo.toml`, `model/pyproject.toml`, `front/package.json`. De la Fase 1: `fastembed` 7.6.1, `usearch` 2.26.6, `rayon` 1.12.0 (crates.io, verificado). De la Fase 2: `torch` 2.15.0, `transformers` 5.22.2, `accelerate` 1.15.0 (PyPI, verificado); `qev` fijado al commit `31678bc` de github.com/OmniJev/OneJev (no hay versión en PyPI con ese nombre que sea la misma librería).
 
 ## Generación de código desde los .proto
 
@@ -116,6 +121,66 @@ Verificado con Docker real, no solo "debería compilar":
 - `docker compose build/up` real, `Upsert` + `Search` probados con texto real en español vía gRPC: la consulta "factura atrasada que hay que cobrar" encontró correctamente las dos facturas vencidas por encima de un contrato y un reporte — similitud semántica real, no coincidencia de palabras.
 - El modelo (~470MB) se cachea en el volumen `neo-vector-model-cache` (`/data/.fastembed_cache` dentro del contenedor); sin ese volumen se vuelve a bajar en cada `recreate`.
 
+## Fase 2: decisiones reales con OneJev-0.8B
+
+`neo-model` ya no simula: sirve inferencia real con **OmniJev/OneJev-0.8B**
+(Apache 2.0, Qwen3.5-0.8B de base, ~2.2GB en bf16) vía la librería `qev`
+(github.com/OmniJev/OneJev, instalada por git+commit — **no confundir con el
+paquete `qev` de PyPI, que es un proyecto no relacionado de otro autor**).
+Decisiones tomadas con Oscar: GPU = **RTX 4060, 8GB** (confirmada con
+`docker run --gpus all ... nvidia-smi`, funciona); sin acceso a Jev por
+ahora (el proveedor sigue implementado pero inactivo).
+
+**El contrato de `Answer` estaba mal desde la Fase 0** — ver la nota en
+Contratos arriba. Se corrigió antes de conectar el modelo real.
+
+**Dos hallazgos reales de la librería `qev`, no bugs nuestros, documentados
+para quien la toque después:**
+- `DecisionEngine.decide()` no acepta un `revision` de Hugging Face fijo (su
+  `__init__` no tiene ese parámetro): siempre carga la rama `main` del
+  repo, no un commit pinneado. `workflows/clasificar-documento.yaml` fija
+  `model: "OmniJev/OneJev-0.8B@c02e305"` como string informativo para la
+  bitácora, pero eso no controla qué pesos se cargan de verdad.
+- `DecisionEngine.decide()` deja `model=""` en la respuesta siempre
+  (`engine.py` línea ~506: `SystemOneResponse(model="", ...)` literal, no es
+  cosa nuestra). `model/neo_model/decide.py` hace eco de `request.model` en
+  vez de usar `response.model`.
+
+**Medido de verdad** con el modelo cargado en GPU real (no CPU, no simulado):
+- Carga del modelo: 120s la primera vez (descarga + carga), 18.7s con el
+  volumen `neo-model-cache` ya tibio.
+- Latencia de `Decide`: ~430ms en frío, ~120-150ms en caliente, para 1-2
+  preguntas.
+- **Concordancia: 1.0000 (300/300)** y **ECE: 0.0264** (`bench/measure_calibration.py`,
+  10 bins, pregunta `categoria` contra los documentos sintéticos etiquetados
+  de `data/generate_documents.py`). **Con una salvedad honesta**: las
+  plantillas sintéticas usan vocabulario muy distintivo por categoría
+  (factura siempre dice "factura"/"vencida"/"cobra", etc.), así que es una
+  tarea fácil — 100% de concordancia aquí no necesariamente generaliza a
+  documentos reales más ambiguos. Los 300 casos cayeron todos en el bin de
+  confianza 0.9-1.0, así que el ECE medido casi no ejercita calibración en
+  confianzas bajas o medias.
+- Verificado de punta a punta vía `neo-api`: un run real (`buscar-precedentes`
+  54ms, `decidir` 535ms) calculó `confidence: 0.567912` para una
+  pregunta `noul` con `noul: 0.216` — coincide exactamente con la fórmula
+  `EffectiveConfidence` (`abs(2*0.216-1) = 0.568`), y la cascada mandó el run
+  a `review` como correspondía por debajo del umbral `llm: 0.60`.
+
+**Imagen de `neo-model`**: pasa de `python:3.12.9-slim-bookworm` a
+`pytorch/pytorch:2.15.0-cuda13.2-cudnn9-runtime` (torch/CUDA ya instalados
+y enlazados; reinstalarlos desde PyPI daría ruedas CPU-only y rompería la
+GPU en silencio). Necesita `--break-system-packages` en pip (PEP 668) y
+`git` instalado (para clonar `qev`, que no está en PyPI).
+
+**Pendiente, explícito**:
+- Optimizaciones opcionales de `qev` no instaladas (`causal_conv1d`,
+  `flash-linear-attention`): el log avisa que usa el fallback de PyTorch,
+  más lento pero correcto. No bloquea la Fase 2.
+- Repetir concordancia/ECE con documentos menos distinguibles léxicamente,
+  para una medida más realista de calibración.
+- Medir p95 de `Decide` bajo carga concurrente (como se hizo para
+  `neo-vector` en la Fase 1) — no se hizo aquí.
+
 ## Front: app completa con modo demo (nov 2026)
 
 `front/` es una app de 5 pantallas (Centro de control, Playground, Historial,
@@ -132,4 +197,4 @@ Lo que queda pendiente, explícitamente fuera de este alcance:
 
 - [ ] Resolver o aceptar como deuda técnica el bloqueo de `typescript-eslint` contra TS7 (`npm run lint` no corre; `tsc --noEmit` sí).
 - [ ] Benchmark de Fase 1 al millón de vectores (ver sección Fase 1 arriba) — metodología ya validada a 2000, falta la corrida larga.
-- [ ] Preguntas abiertas del brief que siguen pendientes: modelo System One a usar, acceso a Jev, categorías reales del caso de clasificación (las de `data/generate_documents.py` son un placeholder razonable, no una decisión final), metas numéricas de cada métrica. **Ya resueltas con Oscar**: GPU = RTX 4060; modelo de embeddings = `intfloat/multilingual-e5-small`; índice ANN = `usearch` (comparado contra fuerza bruta propia).
+- [ ] Preguntas abiertas del brief que siguen pendientes: acceso a Jev, categorías reales del caso de clasificación (las de `data/generate_documents.py` son un placeholder razonable, no una decisión final), metas numéricas de cada métrica. **Ya resueltas con Oscar**: GPU = RTX 4060 (8GB); modelo de embeddings = `intfloat/multilingual-e5-small`; índice ANN = `usearch` (comparado contra fuerza bruta propia); modelo System One = `OmniJev/OneJev-0.8B` vía `qev`.

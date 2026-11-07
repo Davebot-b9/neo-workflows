@@ -22,7 +22,9 @@ const (
 )
 
 // Forma System One: estado + preguntas tipadas -> respuestas con probabilidad.
-// Imita la API de TypeSafe para que Jev y el modelo local compartan contrato.
+// Imita la API de TypeSafe (verificada contra el código fuente de qev, la
+// librería de OneJev: ver CLAUDE.md) para que Jev y el modelo local
+// compartan contrato.
 type DecideRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Model         string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"` // versión fija, nunca "latest"
@@ -83,13 +85,20 @@ func (x *DecideRequest) GetQuestions() map[string]*Question {
 	return nil
 }
 
+// La forma de criteria depende de type: "choice" usa choice_criteria (opción
+// -> descripción); "score" usa score_levels, una lista ORDENADA de niveles
+// (el índice importa: score es el valor esperado sobre esas posiciones);
+// "noul" usa noul_true/noul_false, ambos opcionales.
 type Question struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"` // "choice" | "score" | "noul"
-	Instructions  string                 `protobuf:"bytes,2,opt,name=instructions,proto3" json:"instructions,omitempty"`
-	Criteria      map[string]string      `protobuf:"bytes,3,rep,name=criteria,proto3" json:"criteria,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // opción -> descripción (choice/score)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Type           string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"` // "choice" | "score" | "noul"
+	Instructions   string                 `protobuf:"bytes,2,opt,name=instructions,proto3" json:"instructions,omitempty"`
+	ChoiceCriteria map[string]string      `protobuf:"bytes,3,rep,name=choice_criteria,json=choiceCriteria,proto3" json:"choice_criteria,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ScoreLevels    []string               `protobuf:"bytes,4,rep,name=score_levels,json=scoreLevels,proto3" json:"score_levels,omitempty"`
+	NoulTrue       string                 `protobuf:"bytes,5,opt,name=noul_true,json=noulTrue,proto3" json:"noul_true,omitempty"`
+	NoulFalse      string                 `protobuf:"bytes,6,opt,name=noul_false,json=noulFalse,proto3" json:"noul_false,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Question) Reset() {
@@ -136,11 +145,32 @@ func (x *Question) GetInstructions() string {
 	return ""
 }
 
-func (x *Question) GetCriteria() map[string]string {
+func (x *Question) GetChoiceCriteria() map[string]string {
 	if x != nil {
-		return x.Criteria
+		return x.ChoiceCriteria
 	}
 	return nil
+}
+
+func (x *Question) GetScoreLevels() []string {
+	if x != nil {
+		return x.ScoreLevels
+	}
+	return nil
+}
+
+func (x *Question) GetNoulTrue() string {
+	if x != nil {
+		return x.NoulTrue
+	}
+	return ""
+}
+
+func (x *Question) GetNoulFalse() string {
+	if x != nil {
+		return x.NoulFalse
+	}
+	return ""
 }
 
 type DecideResponse struct {
@@ -203,10 +233,17 @@ func (x *DecideResponse) GetUsage() *Usage {
 	return nil
 }
 
+// Un Answer trae exactamente una de las tres formas, según el type de su
+// Question. noul no tiene un campo confidence propio en el API real (se
+// deriva de qué tan lejos está noul de 0.5); choice y score sí lo traen.
 type Answer struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Probabilities map[string]float64     `protobuf:"bytes,1,rep,name=probabilities,proto3" json:"probabilities,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"` // noul: {"true": p}
-	Confidence    float64                `protobuf:"fixed64,2,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*Answer_Noul
+	//	*Answer_Choice
+	//	*Answer_Score
+	Kind          isAnswer_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -241,14 +278,228 @@ func (*Answer) Descriptor() ([]byte, []int) {
 	return file_neo_v1_model_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *Answer) GetProbabilities() map[string]float64 {
+func (x *Answer) GetKind() isAnswer_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *Answer) GetNoul() *NoulAnswer {
+	if x != nil {
+		if x, ok := x.Kind.(*Answer_Noul); ok {
+			return x.Noul
+		}
+	}
+	return nil
+}
+
+func (x *Answer) GetChoice() *ChoiceAnswer {
+	if x != nil {
+		if x, ok := x.Kind.(*Answer_Choice); ok {
+			return x.Choice
+		}
+	}
+	return nil
+}
+
+func (x *Answer) GetScore() *ScoreAnswer {
+	if x != nil {
+		if x, ok := x.Kind.(*Answer_Score); ok {
+			return x.Score
+		}
+	}
+	return nil
+}
+
+type isAnswer_Kind interface {
+	isAnswer_Kind()
+}
+
+type Answer_Noul struct {
+	Noul *NoulAnswer `protobuf:"bytes,1,opt,name=noul,proto3,oneof"`
+}
+
+type Answer_Choice struct {
+	Choice *ChoiceAnswer `protobuf:"bytes,2,opt,name=choice,proto3,oneof"`
+}
+
+type Answer_Score struct {
+	Score *ScoreAnswer `protobuf:"bytes,3,opt,name=score,proto3,oneof"`
+}
+
+func (*Answer_Noul) isAnswer_Kind() {}
+
+func (*Answer_Choice) isAnswer_Kind() {}
+
+func (*Answer_Score) isAnswer_Kind() {}
+
+type NoulAnswer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Noul          float64                `protobuf:"fixed64,1,opt,name=noul,proto3" json:"noul,omitempty"` // probabilidad de "true"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NoulAnswer) Reset() {
+	*x = NoulAnswer{}
+	mi := &file_neo_v1_model_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NoulAnswer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NoulAnswer) ProtoMessage() {}
+
+func (x *NoulAnswer) ProtoReflect() protoreflect.Message {
+	mi := &file_neo_v1_model_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NoulAnswer.ProtoReflect.Descriptor instead.
+func (*NoulAnswer) Descriptor() ([]byte, []int) {
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *NoulAnswer) GetNoul() float64 {
+	if x != nil {
+		return x.Noul
+	}
+	return 0
+}
+
+type ChoiceAnswer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Choice        string                 `protobuf:"bytes,1,opt,name=choice,proto3" json:"choice,omitempty"`                                                                                           // opción ganadora
+	Probabilities map[string]float64     `protobuf:"bytes,2,rep,name=probabilities,proto3" json:"probabilities,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"` // opción -> probabilidad
+	Confidence    float64                `protobuf:"fixed64,3,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChoiceAnswer) Reset() {
+	*x = ChoiceAnswer{}
+	mi := &file_neo_v1_model_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChoiceAnswer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChoiceAnswer) ProtoMessage() {}
+
+func (x *ChoiceAnswer) ProtoReflect() protoreflect.Message {
+	mi := &file_neo_v1_model_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChoiceAnswer.ProtoReflect.Descriptor instead.
+func (*ChoiceAnswer) Descriptor() ([]byte, []int) {
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ChoiceAnswer) GetChoice() string {
+	if x != nil {
+		return x.Choice
+	}
+	return ""
+}
+
+func (x *ChoiceAnswer) GetProbabilities() map[string]float64 {
 	if x != nil {
 		return x.Probabilities
 	}
 	return nil
 }
 
-func (x *Answer) GetConfidence() float64 {
+func (x *ChoiceAnswer) GetConfidence() float64 {
+	if x != nil {
+		return x.Confidence
+	}
+	return 0
+}
+
+type ScoreAnswer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Score         float64                `protobuf:"fixed64,1,opt,name=score,proto3" json:"score,omitempty"`                                                                                           // valor esperado sobre los índices de score_levels
+	Legend        map[string]string      `protobuf:"bytes,2,rep,name=legend,proto3" json:"legend,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`                 // índice ("0","1",...) -> nivel
+	Probabilities map[string]float64     `protobuf:"bytes,3,rep,name=probabilities,proto3" json:"probabilities,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"` // índice -> probabilidad
+	Confidence    float64                `protobuf:"fixed64,4,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScoreAnswer) Reset() {
+	*x = ScoreAnswer{}
+	mi := &file_neo_v1_model_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScoreAnswer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScoreAnswer) ProtoMessage() {}
+
+func (x *ScoreAnswer) ProtoReflect() protoreflect.Message {
+	mi := &file_neo_v1_model_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScoreAnswer.ProtoReflect.Descriptor instead.
+func (*ScoreAnswer) Descriptor() ([]byte, []int) {
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ScoreAnswer) GetScore() float64 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
+}
+
+func (x *ScoreAnswer) GetLegend() map[string]string {
+	if x != nil {
+		return x.Legend
+	}
+	return nil
+}
+
+func (x *ScoreAnswer) GetProbabilities() map[string]float64 {
+	if x != nil {
+		return x.Probabilities
+	}
+	return nil
+}
+
+func (x *ScoreAnswer) GetConfidence() float64 {
 	if x != nil {
 		return x.Confidence
 	}
@@ -256,17 +507,16 @@ func (x *Answer) GetConfidence() float64 {
 }
 
 type Usage struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	PromptTokens     uint32                 `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3" json:"prompt_tokens,omitempty"`
-	CompletionTokens uint32                 `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3" json:"completion_tokens,omitempty"`
-	LatencyMs        uint32                 `protobuf:"varint,3,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	InputTokens   uint32                 `protobuf:"varint,1,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	OutputTokens  uint32                 `protobuf:"varint,2,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_neo_v1_model_proto_msgTypes[4]
+	mi := &file_neo_v1_model_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -278,7 +528,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_neo_v1_model_proto_msgTypes[4]
+	mi := &file_neo_v1_model_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -291,26 +541,19 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_neo_v1_model_proto_rawDescGZIP(), []int{4}
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *Usage) GetPromptTokens() uint32 {
+func (x *Usage) GetInputTokens() uint32 {
 	if x != nil {
-		return x.PromptTokens
+		return x.InputTokens
 	}
 	return 0
 }
 
-func (x *Usage) GetCompletionTokens() uint32 {
+func (x *Usage) GetOutputTokens() uint32 {
 	if x != nil {
-		return x.CompletionTokens
-	}
-	return 0
-}
-
-func (x *Usage) GetLatencyMs() uint32 {
-	if x != nil {
-		return x.LatencyMs
+		return x.OutputTokens
 	}
 	return 0
 }
@@ -327,7 +570,7 @@ type FineTuneRequest struct {
 
 func (x *FineTuneRequest) Reset() {
 	*x = FineTuneRequest{}
-	mi := &file_neo_v1_model_proto_msgTypes[5]
+	mi := &file_neo_v1_model_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -339,7 +582,7 @@ func (x *FineTuneRequest) String() string {
 func (*FineTuneRequest) ProtoMessage() {}
 
 func (x *FineTuneRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_neo_v1_model_proto_msgTypes[5]
+	mi := &file_neo_v1_model_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -352,7 +595,7 @@ func (x *FineTuneRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FineTuneRequest.ProtoReflect.Descriptor instead.
 func (*FineTuneRequest) Descriptor() ([]byte, []int) {
-	return file_neo_v1_model_proto_rawDescGZIP(), []int{5}
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *FineTuneRequest) GetBaseModel() string {
@@ -386,7 +629,7 @@ type Job struct {
 
 func (x *Job) Reset() {
 	*x = Job{}
-	mi := &file_neo_v1_model_proto_msgTypes[6]
+	mi := &file_neo_v1_model_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -398,7 +641,7 @@ func (x *Job) String() string {
 func (*Job) ProtoMessage() {}
 
 func (x *Job) ProtoReflect() protoreflect.Message {
-	mi := &file_neo_v1_model_proto_msgTypes[6]
+	mi := &file_neo_v1_model_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -411,7 +654,7 @@ func (x *Job) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Job.ProtoReflect.Descriptor instead.
 func (*Job) Descriptor() ([]byte, []int) {
-	return file_neo_v1_model_proto_rawDescGZIP(), []int{6}
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Job) GetJobId() string {
@@ -437,7 +680,7 @@ type JobRef struct {
 
 func (x *JobRef) Reset() {
 	*x = JobRef{}
-	mi := &file_neo_v1_model_proto_msgTypes[7]
+	mi := &file_neo_v1_model_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -449,7 +692,7 @@ func (x *JobRef) String() string {
 func (*JobRef) ProtoMessage() {}
 
 func (x *JobRef) ProtoReflect() protoreflect.Message {
-	mi := &file_neo_v1_model_proto_msgTypes[7]
+	mi := &file_neo_v1_model_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -462,7 +705,7 @@ func (x *JobRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobRef.ProtoReflect.Descriptor instead.
 func (*JobRef) Descriptor() ([]byte, []int) {
-	return file_neo_v1_model_proto_rawDescGZIP(), []int{7}
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *JobRef) GetJobId() string {
@@ -488,7 +731,7 @@ type JobEvent struct {
 
 func (x *JobEvent) Reset() {
 	*x = JobEvent{}
-	mi := &file_neo_v1_model_proto_msgTypes[8]
+	mi := &file_neo_v1_model_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -500,7 +743,7 @@ func (x *JobEvent) String() string {
 func (*JobEvent) ProtoMessage() {}
 
 func (x *JobEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_neo_v1_model_proto_msgTypes[8]
+	mi := &file_neo_v1_model_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -513,7 +756,7 @@ func (x *JobEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobEvent.ProtoReflect.Descriptor instead.
 func (*JobEvent) Descriptor() ([]byte, []int) {
-	return file_neo_v1_model_proto_rawDescGZIP(), []int{8}
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *JobEvent) GetJobId() string {
@@ -580,7 +823,7 @@ type ModelHealthRequest struct {
 
 func (x *ModelHealthRequest) Reset() {
 	*x = ModelHealthRequest{}
-	mi := &file_neo_v1_model_proto_msgTypes[9]
+	mi := &file_neo_v1_model_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -592,7 +835,7 @@ func (x *ModelHealthRequest) String() string {
 func (*ModelHealthRequest) ProtoMessage() {}
 
 func (x *ModelHealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_neo_v1_model_proto_msgTypes[9]
+	mi := &file_neo_v1_model_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -605,7 +848,7 @@ func (x *ModelHealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelHealthRequest.ProtoReflect.Descriptor instead.
 func (*ModelHealthRequest) Descriptor() ([]byte, []int) {
-	return file_neo_v1_model_proto_rawDescGZIP(), []int{9}
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{12}
 }
 
 type ModelHealthResponse struct {
@@ -619,7 +862,7 @@ type ModelHealthResponse struct {
 
 func (x *ModelHealthResponse) Reset() {
 	*x = ModelHealthResponse{}
-	mi := &file_neo_v1_model_proto_msgTypes[10]
+	mi := &file_neo_v1_model_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -631,7 +874,7 @@ func (x *ModelHealthResponse) String() string {
 func (*ModelHealthResponse) ProtoMessage() {}
 
 func (x *ModelHealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_neo_v1_model_proto_msgTypes[10]
+	mi := &file_neo_v1_model_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -644,7 +887,7 @@ func (x *ModelHealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelHealthResponse.ProtoReflect.Descriptor instead.
 func (*ModelHealthResponse) Descriptor() ([]byte, []int) {
-	return file_neo_v1_model_proto_rawDescGZIP(), []int{10}
+	return file_neo_v1_model_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ModelHealthResponse) GetOk() bool {
@@ -679,12 +922,16 @@ const file_neo_v1_model_proto_rawDesc = "" +
 	"\tquestions\x18\x03 \x03(\v2$.neo.v1.DecideRequest.QuestionsEntryR\tquestions\x1aN\n" +
 	"\x0eQuestionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12&\n" +
-	"\x05value\x18\x02 \x01(\v2\x10.neo.v1.QuestionR\x05value:\x028\x01\"\xbb\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x10.neo.v1.QuestionR\x05value:\x028\x01\"\xb3\x02\n" +
 	"\bQuestion\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\"\n" +
-	"\finstructions\x18\x02 \x01(\tR\finstructions\x12:\n" +
-	"\bcriteria\x18\x03 \x03(\v2\x1e.neo.v1.Question.CriteriaEntryR\bcriteria\x1a;\n" +
-	"\rCriteriaEntry\x12\x10\n" +
+	"\finstructions\x18\x02 \x01(\tR\finstructions\x12M\n" +
+	"\x0fchoice_criteria\x18\x03 \x03(\v2$.neo.v1.Question.ChoiceCriteriaEntryR\x0echoiceCriteria\x12!\n" +
+	"\fscore_levels\x18\x04 \x03(\tR\vscoreLevels\x12\x1b\n" +
+	"\tnoul_true\x18\x05 \x01(\tR\bnoulTrue\x12\x1d\n" +
+	"\n" +
+	"noul_false\x18\x06 \x01(\tR\tnoulFalse\x1aA\n" +
+	"\x13ChoiceCriteriaEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd6\x01\n" +
 	"\x0eDecideResponse\x12\x14\n" +
@@ -693,20 +940,40 @@ const file_neo_v1_model_proto_rawDesc = "" +
 	"\x05usage\x18\x03 \x01(\v2\r.neo.v1.UsageR\x05usage\x1aJ\n" +
 	"\fAnswersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12$\n" +
-	"\x05value\x18\x02 \x01(\v2\x0e.neo.v1.AnswerR\x05value:\x028\x01\"\xb3\x01\n" +
-	"\x06Answer\x12G\n" +
-	"\rprobabilities\x18\x01 \x03(\v2!.neo.v1.Answer.ProbabilitiesEntryR\rprobabilities\x12\x1e\n" +
+	"\x05value\x18\x02 \x01(\v2\x0e.neo.v1.AnswerR\x05value:\x028\x01\"\x97\x01\n" +
+	"\x06Answer\x12(\n" +
+	"\x04noul\x18\x01 \x01(\v2\x12.neo.v1.NoulAnswerH\x00R\x04noul\x12.\n" +
+	"\x06choice\x18\x02 \x01(\v2\x14.neo.v1.ChoiceAnswerH\x00R\x06choice\x12+\n" +
+	"\x05score\x18\x03 \x01(\v2\x13.neo.v1.ScoreAnswerH\x00R\x05scoreB\x06\n" +
+	"\x04kind\" \n" +
 	"\n" +
-	"confidence\x18\x02 \x01(\x01R\n" +
+	"NoulAnswer\x12\x12\n" +
+	"\x04noul\x18\x01 \x01(\x01R\x04noul\"\xd7\x01\n" +
+	"\fChoiceAnswer\x12\x16\n" +
+	"\x06choice\x18\x01 \x01(\tR\x06choice\x12M\n" +
+	"\rprobabilities\x18\x02 \x03(\v2'.neo.v1.ChoiceAnswer.ProbabilitiesEntryR\rprobabilities\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\x03 \x01(\x01R\n" +
 	"confidence\x1a@\n" +
 	"\x12ProbabilitiesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"x\n" +
-	"\x05Usage\x12#\n" +
-	"\rprompt_tokens\x18\x01 \x01(\rR\fpromptTokens\x12+\n" +
-	"\x11completion_tokens\x18\x02 \x01(\rR\x10completionTokens\x12\x1d\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"\xc7\x02\n" +
+	"\vScoreAnswer\x12\x14\n" +
+	"\x05score\x18\x01 \x01(\x01R\x05score\x127\n" +
+	"\x06legend\x18\x02 \x03(\v2\x1f.neo.v1.ScoreAnswer.LegendEntryR\x06legend\x12L\n" +
+	"\rprobabilities\x18\x03 \x03(\v2&.neo.v1.ScoreAnswer.ProbabilitiesEntryR\rprobabilities\x12\x1e\n" +
 	"\n" +
-	"latency_ms\x18\x03 \x01(\rR\tlatencyMs\"\xed\x01\n" +
+	"confidence\x18\x04 \x01(\x01R\n" +
+	"confidence\x1a9\n" +
+	"\vLegendEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a@\n" +
+	"\x12ProbabilitiesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"O\n" +
+	"\x05Usage\x12!\n" +
+	"\finput_tokens\x18\x01 \x01(\rR\vinputTokens\x12#\n" +
+	"\routput_tokens\x18\x02 \x01(\rR\foutputTokens\"\xed\x01\n" +
 	"\x0fFineTuneRequest\x12\x1d\n" +
 	"\n" +
 	"base_model\x18\x01 \x01(\tR\tbaseModel\x12\x1f\n" +
@@ -754,47 +1021,57 @@ func file_neo_v1_model_proto_rawDescGZIP() []byte {
 	return file_neo_v1_model_proto_rawDescData
 }
 
-var file_neo_v1_model_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_neo_v1_model_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_neo_v1_model_proto_goTypes = []any{
 	(*DecideRequest)(nil),       // 0: neo.v1.DecideRequest
 	(*Question)(nil),            // 1: neo.v1.Question
 	(*DecideResponse)(nil),      // 2: neo.v1.DecideResponse
 	(*Answer)(nil),              // 3: neo.v1.Answer
-	(*Usage)(nil),               // 4: neo.v1.Usage
-	(*FineTuneRequest)(nil),     // 5: neo.v1.FineTuneRequest
-	(*Job)(nil),                 // 6: neo.v1.Job
-	(*JobRef)(nil),              // 7: neo.v1.JobRef
-	(*JobEvent)(nil),            // 8: neo.v1.JobEvent
-	(*ModelHealthRequest)(nil),  // 9: neo.v1.ModelHealthRequest
-	(*ModelHealthResponse)(nil), // 10: neo.v1.ModelHealthResponse
-	nil,                         // 11: neo.v1.DecideRequest.QuestionsEntry
-	nil,                         // 12: neo.v1.Question.CriteriaEntry
-	nil,                         // 13: neo.v1.DecideResponse.AnswersEntry
-	nil,                         // 14: neo.v1.Answer.ProbabilitiesEntry
-	nil,                         // 15: neo.v1.FineTuneRequest.HyperparametersEntry
+	(*NoulAnswer)(nil),          // 4: neo.v1.NoulAnswer
+	(*ChoiceAnswer)(nil),        // 5: neo.v1.ChoiceAnswer
+	(*ScoreAnswer)(nil),         // 6: neo.v1.ScoreAnswer
+	(*Usage)(nil),               // 7: neo.v1.Usage
+	(*FineTuneRequest)(nil),     // 8: neo.v1.FineTuneRequest
+	(*Job)(nil),                 // 9: neo.v1.Job
+	(*JobRef)(nil),              // 10: neo.v1.JobRef
+	(*JobEvent)(nil),            // 11: neo.v1.JobEvent
+	(*ModelHealthRequest)(nil),  // 12: neo.v1.ModelHealthRequest
+	(*ModelHealthResponse)(nil), // 13: neo.v1.ModelHealthResponse
+	nil,                         // 14: neo.v1.DecideRequest.QuestionsEntry
+	nil,                         // 15: neo.v1.Question.ChoiceCriteriaEntry
+	nil,                         // 16: neo.v1.DecideResponse.AnswersEntry
+	nil,                         // 17: neo.v1.ChoiceAnswer.ProbabilitiesEntry
+	nil,                         // 18: neo.v1.ScoreAnswer.LegendEntry
+	nil,                         // 19: neo.v1.ScoreAnswer.ProbabilitiesEntry
+	nil,                         // 20: neo.v1.FineTuneRequest.HyperparametersEntry
 }
 var file_neo_v1_model_proto_depIdxs = []int32{
-	11, // 0: neo.v1.DecideRequest.questions:type_name -> neo.v1.DecideRequest.QuestionsEntry
-	12, // 1: neo.v1.Question.criteria:type_name -> neo.v1.Question.CriteriaEntry
-	13, // 2: neo.v1.DecideResponse.answers:type_name -> neo.v1.DecideResponse.AnswersEntry
-	4,  // 3: neo.v1.DecideResponse.usage:type_name -> neo.v1.Usage
-	14, // 4: neo.v1.Answer.probabilities:type_name -> neo.v1.Answer.ProbabilitiesEntry
-	15, // 5: neo.v1.FineTuneRequest.hyperparameters:type_name -> neo.v1.FineTuneRequest.HyperparametersEntry
-	1,  // 6: neo.v1.DecideRequest.QuestionsEntry.value:type_name -> neo.v1.Question
-	3,  // 7: neo.v1.DecideResponse.AnswersEntry.value:type_name -> neo.v1.Answer
-	0,  // 8: neo.v1.ModelService.Decide:input_type -> neo.v1.DecideRequest
-	5,  // 9: neo.v1.ModelService.StartFineTune:input_type -> neo.v1.FineTuneRequest
-	7,  // 10: neo.v1.ModelService.WatchJob:input_type -> neo.v1.JobRef
-	9,  // 11: neo.v1.ModelService.Health:input_type -> neo.v1.ModelHealthRequest
-	2,  // 12: neo.v1.ModelService.Decide:output_type -> neo.v1.DecideResponse
-	6,  // 13: neo.v1.ModelService.StartFineTune:output_type -> neo.v1.Job
-	8,  // 14: neo.v1.ModelService.WatchJob:output_type -> neo.v1.JobEvent
-	10, // 15: neo.v1.ModelService.Health:output_type -> neo.v1.ModelHealthResponse
-	12, // [12:16] is the sub-list for method output_type
-	8,  // [8:12] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	14, // 0: neo.v1.DecideRequest.questions:type_name -> neo.v1.DecideRequest.QuestionsEntry
+	15, // 1: neo.v1.Question.choice_criteria:type_name -> neo.v1.Question.ChoiceCriteriaEntry
+	16, // 2: neo.v1.DecideResponse.answers:type_name -> neo.v1.DecideResponse.AnswersEntry
+	7,  // 3: neo.v1.DecideResponse.usage:type_name -> neo.v1.Usage
+	4,  // 4: neo.v1.Answer.noul:type_name -> neo.v1.NoulAnswer
+	5,  // 5: neo.v1.Answer.choice:type_name -> neo.v1.ChoiceAnswer
+	6,  // 6: neo.v1.Answer.score:type_name -> neo.v1.ScoreAnswer
+	17, // 7: neo.v1.ChoiceAnswer.probabilities:type_name -> neo.v1.ChoiceAnswer.ProbabilitiesEntry
+	18, // 8: neo.v1.ScoreAnswer.legend:type_name -> neo.v1.ScoreAnswer.LegendEntry
+	19, // 9: neo.v1.ScoreAnswer.probabilities:type_name -> neo.v1.ScoreAnswer.ProbabilitiesEntry
+	20, // 10: neo.v1.FineTuneRequest.hyperparameters:type_name -> neo.v1.FineTuneRequest.HyperparametersEntry
+	1,  // 11: neo.v1.DecideRequest.QuestionsEntry.value:type_name -> neo.v1.Question
+	3,  // 12: neo.v1.DecideResponse.AnswersEntry.value:type_name -> neo.v1.Answer
+	0,  // 13: neo.v1.ModelService.Decide:input_type -> neo.v1.DecideRequest
+	8,  // 14: neo.v1.ModelService.StartFineTune:input_type -> neo.v1.FineTuneRequest
+	10, // 15: neo.v1.ModelService.WatchJob:input_type -> neo.v1.JobRef
+	12, // 16: neo.v1.ModelService.Health:input_type -> neo.v1.ModelHealthRequest
+	2,  // 17: neo.v1.ModelService.Decide:output_type -> neo.v1.DecideResponse
+	9,  // 18: neo.v1.ModelService.StartFineTune:output_type -> neo.v1.Job
+	11, // 19: neo.v1.ModelService.WatchJob:output_type -> neo.v1.JobEvent
+	13, // 20: neo.v1.ModelService.Health:output_type -> neo.v1.ModelHealthResponse
+	17, // [17:21] is the sub-list for method output_type
+	13, // [13:17] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_neo_v1_model_proto_init() }
@@ -802,13 +1079,18 @@ func file_neo_v1_model_proto_init() {
 	if File_neo_v1_model_proto != nil {
 		return
 	}
+	file_neo_v1_model_proto_msgTypes[3].OneofWrappers = []any{
+		(*Answer_Noul)(nil),
+		(*Answer_Choice)(nil),
+		(*Answer_Score)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_neo_v1_model_proto_rawDesc), len(file_neo_v1_model_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -1,8 +1,8 @@
 name: neo-workflows
 
 # Arranque esperado:
-#   docker compose up                                        (sin GPU, Fases 0-2)
-#   docker compose -f compose.yaml -f compose.gpu.yaml up     (con GPU, Fases 3+)
+#   docker compose up                                        (sin GPU; neo-model en CPU, lento)
+#   docker compose -f compose.yaml -f compose.gpu.yaml up     (con GPU; recomendado desde la Fase 2)
 #
 # `web` no está en Compose: corre en el host con `npm run dev` dentro de front/,
 # apuntando a http://localhost:8080 (ver puertos en CLAUDE.md).
@@ -58,12 +58,20 @@ services:
       - "50052:50052"
     environment:
       NEO_MODEL_DEVICE: ${NEO_MODEL_DEVICE:-cpu}
+      # qev.DecisionEngine no acepta un revision fijo (ver CLAUDE.md): esto
+      # siempre carga la rama main del repo en Hugging Face, no un commit
+      # pinneado. Limitación conocida de la librería, no decisión nuestra.
+      NEO_MODEL_PATH: ${NEO_MODEL_PATH:-OmniJev/OneJev-0.8B}
+    volumes:
+      # El modelo (~2.2GB) se baja una vez de Hugging Face y se cachea aquí;
+      # sin esto, cada recreate del contenedor lo vuelve a bajar.
+      - neo-model-cache:/data
     healthcheck:
       test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=:50052", "-service=neo.v1.ModelService"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 300s
 
   neo-api:
     build:
@@ -97,3 +105,4 @@ services:
 volumes:
   neo-postgres-data:
   neo-vector-model-cache:
+  neo-model-cache:

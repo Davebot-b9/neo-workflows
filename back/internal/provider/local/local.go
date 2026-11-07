@@ -28,9 +28,12 @@ func (a *Adapter) Decide(ctx context.Context, req provider.Request) (provider.Re
 	questions := make(map[string]*neov1.Question, len(req.Questions))
 	for name, q := range req.Questions {
 		questions[name] = &neov1.Question{
-			Type:         q.Type,
-			Instructions: q.Instructions,
-			Criteria:     q.Criteria,
+			Type:           q.Type,
+			Instructions:   q.Instructions,
+			ChoiceCriteria: q.Criteria,
+			ScoreLevels:    q.ScoreLevels,
+			NoulTrue:       q.NoulTrue,
+			NoulFalse:      q.NoulFalse,
 		}
 	}
 
@@ -44,21 +47,42 @@ func (a *Adapter) Decide(ctx context.Context, req provider.Request) (provider.Re
 	}
 
 	answers := make(map[string]provider.Answer, len(resp.Msg.Answers))
-	for name, a := range resp.Msg.Answers {
-		answers[name] = provider.Answer{
-			Probabilities: a.Probabilities,
-			Confidence:    a.Confidence,
+	for name, wireAnswer := range resp.Msg.Answers {
+		a, err := fromWireAnswer(wireAnswer)
+		if err != nil {
+			return provider.Response{}, fmt.Errorf("neo-model Decide: pregunta %q: %w", name, err)
 		}
+		answers[name] = a
 	}
 
 	var usage provider.Usage
 	if u := resp.Msg.Usage; u != nil {
-		usage = provider.Usage{
-			PromptTokens:     u.PromptTokens,
-			CompletionTokens: u.CompletionTokens,
-			LatencyMs:        u.LatencyMs,
-		}
+		usage = provider.Usage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens}
 	}
 
 	return provider.Response{Model: resp.Msg.Model, Answers: answers, Usage: usage}, nil
+}
+
+func fromWireAnswer(wire *neov1.Answer) (provider.Answer, error) {
+	switch kind := wire.GetKind().(type) {
+	case *neov1.Answer_Noul:
+		return provider.Answer{Type: "noul", Noul: kind.Noul.GetNoul()}, nil
+	case *neov1.Answer_Choice:
+		return provider.Answer{
+			Type:          "choice",
+			Choice:        kind.Choice.GetChoice(),
+			Probabilities: kind.Choice.GetProbabilities(),
+			Confidence:    kind.Choice.GetConfidence(),
+		}, nil
+	case *neov1.Answer_Score:
+		return provider.Answer{
+			Type:          "score",
+			Score:         kind.Score.GetScore(),
+			Legend:        kind.Score.GetLegend(),
+			Probabilities: kind.Score.GetProbabilities(),
+			Confidence:    kind.Score.GetConfidence(),
+		}, nil
+	default:
+		return provider.Answer{}, fmt.Errorf("answer sin kind reconocido")
+	}
 }

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from concurrent import futures
 
 import grpc
@@ -20,8 +21,11 @@ from neo_model import jobs as jobs_mod
 
 
 class ModelServiceServicer(model_pb2_grpc.ModelServiceServicer):
+    def __init__(self, engine):
+        self.engine = engine
+
     def Decide(self, request, context):
-        return decide_mod.decide(request)
+        return decide_mod.decide(self.engine, request)
 
     def StartFineTune(self, request, context):
         return jobs_mod.start_fine_tune(request)
@@ -31,13 +35,23 @@ class ModelServiceServicer(model_pb2_grpc.ModelServiceServicer):
 
     def Health(self, request, context):
         gpu_available = os.environ.get("NEO_MODEL_DEVICE", "cpu") == "cuda"
-        return model_pb2.ModelHealthResponse(ok=True, gpu_available=gpu_available, detail="fase-0-sim")
+        return model_pb2.ModelHealthResponse(ok=True, gpu_available=gpu_available, detail=self.engine.info.model_path)
 
 
 def serve() -> None:
+    # El modelo se carga al arrancar, antes de aceptar conexiones (Singleton:
+    # se carga una vez y se pasa al servicer, ver Patrones en el brief). gRPC
+    # no deja registrar un servicer después de server.start(), así que el
+    # puerto no escucha hasta que el modelo está listo; compose.yaml le da un
+    # start_period generoso al healthcheck para cubrir esta espera.
+    print("cargando el modelo...", flush=True)
+    t0 = time.perf_counter()
+    engine = decide_mod.load_engine()
+    print(f"modelo cargado en {time.perf_counter() - t0:.1f}s: {engine.info.model_path} ({engine.info.device})", flush=True)
+
     addr = os.environ.get("NEO_MODEL_GRPC_ADDR", "[::]:50052")
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    model_pb2_grpc.add_ModelServiceServicer_to_server(ModelServiceServicer(), server)
+    model_pb2_grpc.add_ModelServiceServicer_to_server(ModelServiceServicer(engine), server)
 
     health_servicer = health.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)

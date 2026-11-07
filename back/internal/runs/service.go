@@ -83,13 +83,13 @@ func (s *DecisionService) run(runID string, wf *workflow.Workflow, text string) 
 		return
 	}
 
-	resp, err := s.stageDecide(ctx, runID, wf, state)
+	resp, decideLatency, err := s.stageDecide(ctx, runID, wf, state)
 	if err != nil {
 		s.publishError(runID, err)
 		return
 	}
 
-	s.stageCascade(runID, wf, resp)
+	s.stageCascade(runID, wf, resp, decideLatency)
 
 	s.broker.Publish(runID, "run.done", mustJSON(DonePayload{RunID: runID}))
 }
@@ -114,7 +114,7 @@ func (s *DecisionService) stageSearch(ctx context.Context, runID string, wf *wor
 	return matches, nil
 }
 
-func (s *DecisionService) stageDecide(ctx context.Context, runID string, wf *workflow.Workflow, state string) (provider.Response, error) {
+func (s *DecisionService) stageDecide(ctx context.Context, runID string, wf *workflow.Workflow, state string) (provider.Response, time.Duration, error) {
 	start := time.Now()
 	s.publishStage(runID, "decidir", "started", 0)
 
@@ -123,35 +123,39 @@ func (s *DecisionService) stageDecide(ctx context.Context, runID string, wf *wor
 	if !ok {
 		err := fmt.Errorf("proveedor %q no disponible (¿falta JEV_API_KEY?)", kind)
 		s.publishStage(runID, "decidir", "error", time.Since(start).Milliseconds())
-		return provider.Response{}, err
+		return provider.Response{}, 0, err
 	}
 
 	questions := make(map[string]provider.Question, len(wf.Questions))
 	for name, q := range wf.Questions {
-		questions[name] = provider.Question{Type: q.Type, Instructions: q.Instructions, Criteria: q.Criteria}
+		questions[name] = provider.Question{
+			Type:         q.Type,
+			Instructions: q.Instructions,
+			Criteria:     q.Criteria,
+			ScoreLevels:  q.ScoreLevels,
+			NoulTrue:     q.NoulTrue,
+			NoulFalse:    q.NoulFalse,
+		}
 	}
 
 	resp, err := p.Decide(ctx, provider.Request{Model: wf.Model, State: state, Questions: questions})
+	elapsed := time.Since(start)
 	if err != nil {
-		s.publishStage(runID, "decidir", "error", time.Since(start).Milliseconds())
-		return provider.Response{}, err
+		s.publishStage(runID, "decidir", "error", elapsed.Milliseconds())
+		return provider.Response{}, 0, err
 	}
 
-	s.publishStage(runID, "decidir", "done", time.Since(start).Milliseconds())
-	return resp, nil
+	s.publishStage(runID, "decidir", "done", elapsed.Milliseconds())
+	return resp, elapsed, nil
 }
 
-func (s *DecisionService) stageCascade(runID string, wf *workflow.Workflow, resp provider.Response) {
+func (s *DecisionService) stageCascade(runID string, wf *workflow.Workflow, resp provider.Response, decideLatency time.Duration) {
 	start := time.Now()
 	s.publishStage(runID, "cascada", "started", 0)
 
 	confidence := overallConfidence(resp)
 	route := cascade.Route(confidence, wf.Cascade.Auto, wf.Cascade.LLM)
-
-	answers := make(map[string]AnswerPayload, len(resp.Answers))
-	for name, a := range resp.Answers {
-		answers[name] = AnswerPayload{Probabilities: a.Probabilities, Confidence: a.Confidence}
-	}
+	answers := toAnswerPayloads(resp.Answers)
 
 	s.broker.Publish(runID, "run.decision", mustJSON(DecisionPayload{
 		Answers:    answers,
@@ -174,8 +178,35 @@ func (s *DecisionService) stageCascade(runID string, wf *workflow.Workflow, resp
 		Answers:         answersJSON,
 		Confidence:      confidence,
 		Route:           route,
-		LatencyMs:       int(resp.Usage.LatencyMs),
+		LatencyMs:       int(decideLatency.Milliseconds()),
 	})
+}
+
+// toAnswerPayloads traduce provider.Answer (tagged union en Go) a la forma
+// JSON real de System One: solo los campos del Type de cada respuesta.
+func toAnswerPayloads(answers map[string]provider.Answer) map[string]AnswerPayload {
+	out := make(map[string]AnswerPayload, len(answers))
+	for name, a := range answers {
+		switch a.Type {
+		case "noul":
+			noul := a.Noul
+			out[name] = AnswerPayload{Type: "noul", Noul: &noul}
+		case "score":
+			score := a.Score
+			confidence := a.Confidence
+			out[name] = AnswerPayload{
+				Type: "score", Score: &score, Legend: a.Legend,
+				Probabilities: a.Probabilities, Confidence: &confidence,
+			}
+		default: // "choice"
+			confidence := a.Confidence
+			out[name] = AnswerPayload{
+				Type: "choice", Choice: a.Choice,
+				Probabilities: a.Probabilities, Confidence: &confidence,
+			}
+		}
+	}
+	return out
 }
 
 func (s *DecisionService) publishStage(runID, name, status string, ms int64) {
@@ -193,8 +224,9 @@ func overallConfidence(resp provider.Response) float64 {
 	min := 1.0
 	found := false
 	for _, a := range resp.Answers {
-		if !found || a.Confidence < min {
-			min = a.Confidence
+		c := a.EffectiveConfidence()
+		if !found || c < min {
+			min = c
 			found = true
 		}
 	}

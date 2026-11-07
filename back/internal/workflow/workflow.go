@@ -12,10 +12,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Question sigue la forma real del API System One (verificada contra el
+// código de qev, la librería de OneJev: ver CLAUDE.md). Qué campos importan
+// depende de Type: "choice" usa Criteria (opción -> descripción); "score"
+// usa ScoreLevels, una lista ORDENADA de niveles (el índice es el valor);
+// "noul" usa NoulTrue/NoulFalse, ambos opcionales.
 type Question struct {
 	Type         string            `yaml:"type" json:"type"`
 	Instructions string            `yaml:"instructions" json:"instructions"`
 	Criteria     map[string]string `yaml:"criteria,omitempty" json:"criteria,omitempty"`
+	ScoreLevels  []string          `yaml:"score_levels,omitempty" json:"score_levels,omitempty"`
+	NoulTrue     string            `yaml:"noul_true,omitempty" json:"noul_true,omitempty"`
+	NoulFalse    string            `yaml:"noul_false,omitempty" json:"noul_false,omitempty"`
 }
 
 type Search struct {
@@ -68,6 +76,22 @@ func (w *Workflow) Validate() error {
 	}
 	if len(w.Questions) == 0 {
 		return fmt.Errorf("workflow %q: necesita al menos una pregunta", w.ID)
+	}
+	for name, q := range w.Questions {
+		switch q.Type {
+		case "choice":
+			if len(q.Criteria) == 0 {
+				return fmt.Errorf("workflow %q: la pregunta %q es choice y necesita criteria", w.ID, name)
+			}
+		case "score":
+			if len(q.ScoreLevels) == 0 {
+				return fmt.Errorf("workflow %q: la pregunta %q es score y necesita score_levels", w.ID, name)
+			}
+		case "noul":
+			// NoulTrue/NoulFalse son opcionales.
+		default:
+			return fmt.Errorf("workflow %q: la pregunta %q tiene type %q, debe ser choice, score o noul", w.ID, name, q.Type)
+		}
 	}
 	if w.Cascade.Auto <= w.Cascade.LLM {
 		return fmt.Errorf("workflow %q: cascade.auto (%.2f) debe ser mayor que cascade.llm (%.2f)", w.ID, w.Cascade.Auto, w.Cascade.LLM)
