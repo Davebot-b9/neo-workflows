@@ -1,0 +1,91 @@
+name: neo-workflows
+
+# Arranque esperado:
+#   docker compose up                                        (sin GPU, Fases 0-2)
+#   docker compose -f compose.yaml -f compose.gpu.yaml up     (con GPU, Fases 3+)
+#
+# `web` no está en Compose: corre en el host con `npm run dev` dentro de front/,
+# apuntando a http://localhost:8080 (ver puertos en CLAUDE.md).
+
+services:
+  postgres:
+    image: postgres:18.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-neo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-neo}
+      POSTGRES_DB: ${POSTGRES_DB:-neo}
+    ports:
+      - "5432:5432"
+    volumes:
+      # Postgres 18+ guarda los datos en un subdirectorio por versión mayor
+      # dentro de /var/lib/postgresql; montar en .../data (convención <18)
+      # lo deja en un estado inconsistente al arrancar.
+      - neo-postgres-data:/var/lib/postgresql
+      - ./back/internal/ledger/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-neo} -d ${POSTGRES_DB:-neo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  neo-vector:
+    build:
+      context: .
+      dockerfile: vector/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "50051:50051"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=:50051", "-service=neo.v1.VectorService"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  neo-model:
+    build:
+      context: ./model
+    restart: unless-stopped
+    ports:
+      - "50052:50052"
+    environment:
+      NEO_MODEL_DEVICE: ${NEO_MODEL_DEVICE:-cpu}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=:50052", "-service=neo.v1.ModelService"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  neo-api:
+    build:
+      context: ./back
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      NEO_HTTP_ADDR: ":8080"
+      NEO_VECTOR_ADDR: "neo-vector:50051"
+      NEO_MODEL_ADDR: "neo-model:50052"
+      NEO_DATABASE_URL: postgres://${POSTGRES_USER:-neo}:${POSTGRES_PASSWORD:-neo}@postgres:5432/${POSTGRES_DB:-neo}?sslmode=disable
+      NEO_WORKFLOWS_DIR: /app/workflows
+      JEV_API_KEY: ${JEV_API_KEY:-}
+    volumes:
+      - ./workflows:/app/workflows:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo-vector:
+        condition: service_healthy
+      neo-model:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/neo", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  neo-postgres-data:

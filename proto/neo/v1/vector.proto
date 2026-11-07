@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package neo.v1;
+
+option go_package = "neo-api/internal/genproto/neo/v1;neov1";
+
+// VectorService vive en neo-vector (Rust). Solo devuelve vecinos con score;
+// nunca decide nada de negocio.
+service VectorService {
+  rpc Upsert(UpsertRequest) returns (UpsertResponse);
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message UpsertRequest {
+  string collection = 1;
+  repeated Document documents = 2;
+}
+
+message Document {
+  uint64 id = 1;
+  repeated float vector = 2;
+  string text = 3;
+  map<string, string> metadata = 4;
+}
+
+message UpsertResponse {
+  uint64 upserted = 1;
+}
+
+message SearchRequest {
+  string collection = 1;
+  repeated float query_vector = 2;
+  // Si no se manda query_vector, neo-vector calcula el embedding de query_text.
+  string query_text = 3;
+  uint32 top_k = 4;
+}
+
+message SearchResponse {
+  repeated Match matches = 1;
+}
+
+message Match {
+  uint64 id = 1;
+  float score = 2;
+  string text = 3;
+  map<string, string> metadata = 4;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool ok = 1;
+  string detail = 2;
+}

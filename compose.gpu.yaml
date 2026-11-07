@@ -1,0 +1,16 @@
+name: neo-workflows
+
+# Overlay con GPU para neo-model. Requiere Docker Desktop con backend WSL2 y
+# el NVIDIA Container Toolkit expuesto a los contenedores. Sin esto, las
+# Fases 0 a 2 corren bien en CPU; entrenar en la Fase 3 sí necesita GPU.
+services:
+  neo-model:
+    environment:
+      NEO_MODEL_DEVICE: cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

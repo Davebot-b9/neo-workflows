@@ -1,0 +1,24 @@
+# Workflow de ejemplo para la Fase 0. Categorías y umbrales por validar con Oscar.
+id: clasificar-documento
+version: 1
+provider: local # local | jev
+model: "onejev-4b@fase0-sim" # para Jev, por ejemplo jev-1.13. Nunca "latest".
+search:
+  top_k: 5
+state_template: |
+  Documento: {{ .Text }}
+  Precedentes: {{ .Precedents }}
+questions:
+  categoria:
+    type: choice
+    instructions: ¿A qué categoría pertenece el documento?
+    criteria:
+      contrato: Acuerdos entre partes
+      factura: Cobros y pagos
+      reporte: Informes y resultados
+  urgente:
+    type: noul
+    instructions: ¿El documento requiere atención inmediata?
+cascade:
+  auto: 0.90 # confianza mínima para decidir sin escalar
+  llm: 0.60 # entre llm y auto: escala a un LLM; debajo de llm: revisión humana

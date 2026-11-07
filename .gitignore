@@ -1,0 +1,35 @@
+# Secretos
+.env
+
+# Go
+back/neo
+back/*.exe
+back/**/*.test
+
+# Rust
+vector/target/
+
+# Python
+model/.venv/
+model/**/__pycache__/
+model/**/*.pyc
+model/.pytest_cache/
+**/*.lora/
+**/adapters/
+
+# Node / front
+front/node_modules/
+front/dist/
+front/.vite/
+
+# Datos y benchmarks generados localmente
+data/generated/
+bench/results/
+
+# Editor / SO
+.vscode/*
+!back/.vscode/settings.json
+!front/.vscode/settings.json
+.DS_Store
+Thumbs.db
+*.log

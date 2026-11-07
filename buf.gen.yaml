@@ -1,0 +1,11 @@
+version: v2
+# Genera el código Go (tipos protobuf + servicios Connect) desde proto/.
+# Rust se genera aparte, en cada `cargo build`, vía tonic-build (ver vector/build.rs).
+# Python se genera aparte con grpc_tools.protoc (ver model/README o CLAUDE.md).
+plugins:
+  - local: protoc-gen-go
+    out: back/internal/genproto
+    opt: paths=source_relative
+  - local: protoc-gen-connect-go
+    out: back/internal/genproto
+    opt: paths=source_relative

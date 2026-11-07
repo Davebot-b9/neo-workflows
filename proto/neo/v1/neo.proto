@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package neo.v1;
+
+import "neo/v1/model.proto";
+
+option go_package = "neo-api/internal/genproto/neo/v1;neov1";
+
+// NeoService vive en neo-api (Go), expuesto con Connect: el mismo handler
+// sirve gRPC y HTTP/JSON. El front consume la variante HTTP/JSON + SSE
+// documentada en Contratos; este contrato es el mismo servicio visto como gRPC.
+service NeoService {
+  rpc StartRun(RunRequest) returns (RunRef);
+  rpc WatchRun(RunRef) returns (stream RunEvent);
+}
+
+message RunRequest {
+  string workflow = 1; // id del workflow en workflows/*.yaml
+  string text = 2;
+}
+
+message RunRef {
+  string run_id = 1;
+}
+
+message RunEvent {
+  string run_id = 1;
+  string type = 2; // "run.stage" | "run.decision" | "run.done" | "run.error"
+  RunStage stage = 3;
+  RunDecision decision = 4;
+  string error = 5;
+}
+
+message RunStage {
+  string name = 1;
+  string status = 2; // "started" | "done" | "error"
+  uint32 ms = 3;
+}
+
+message RunDecision {
+  map<string, Answer> answers = 1;
+  double confidence = 2;
+  string route = 3; // "auto" | "llm" | "review"
+}

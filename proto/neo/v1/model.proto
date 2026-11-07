@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package neo.v1;
+
+option go_package = "neo-api/internal/genproto/neo/v1;neov1";
+
+// ModelService vive en neo-model (Python). Solo sirve inferencia y entrena;
+// nunca aplica reglas de negocio, umbrales ni cascada.
+service ModelService {
+  rpc Decide(DecideRequest) returns (DecideResponse);
+  rpc StartFineTune(FineTuneRequest) returns (Job);
+  rpc WatchJob(JobRef) returns (stream JobEvent);
+  rpc Health(ModelHealthRequest) returns (ModelHealthResponse);
+}
+
+// Forma System One: estado + preguntas tipadas -> respuestas con probabilidad.
+// Imita la API de TypeSafe para que Jev y el modelo local compartan contrato.
+message DecideRequest {
+  string model = 1; // versión fija, nunca "latest"
+  string state = 2;
+  map<string, Question> questions = 3;
+}
+
+message Question {
+  string type = 1; // "choice" | "score" | "noul"
+  string instructions = 2;
+  map<string, string> criteria = 3; // opción -> descripción (choice/score)
+}
+
+message DecideResponse {
+  string model = 1;
+  map<string, Answer> answers = 2;
+  Usage usage = 3;
+}
+
+message Answer {
+  map<string, double> probabilities = 1; // noul: {"true": p}
+  double confidence = 2;
+}
+
+message Usage {
+  uint32 prompt_tokens = 1;
+  uint32 completion_tokens = 2;
+  uint32 latency_ms = 3;
+}
+
+// Fine-tuning LoRA.
+message FineTuneRequest {
+  string base_model = 1;
+  string dataset_uri = 2;
+  map<string, string> hyperparameters = 3;
+}
+
+message Job {
+  string job_id = 1;
+  string status = 2; // "queued" | "running" | "done" | "error"
+}
+
+message JobRef {
+  string job_id = 1;
+}
+
+message JobEvent {
+  string job_id = 1;
+  uint32 step = 2;
+  uint32 max_steps = 3;
+  double loss = 4;
+  string eta = 5;
+  string status = 6; // "progress" | "done" | "error"
+  string adapter_uri = 7; // presente cuando status == "done"
+  string error = 8; // presente cuando status == "error"
+}
+
+message ModelHealthRequest {}
+
+message ModelHealthResponse {
+  bool ok = 1;
+  bool gpu_available = 2;
+  string detail = 3;
+}
