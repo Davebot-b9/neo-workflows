@@ -52,7 +52,7 @@ Verificadas contra fuentes reales (go.dev/dl, endoflife.date, crates.io, PyPI, n
 | buf | 1.75.0 | usado puntualmente vía `go install`, ver abajo |
 | Python | 3.12.9 (ya instalado en la máquina) | `model/.python-version` |
 
-Dependencias de cada servicio: ver `back/go.mod`, `vector/Cargo.toml`, `model/pyproject.toml`, `front/package.json`.
+Dependencias de cada servicio: ver `back/go.mod`, `vector/Cargo.toml`, `model/pyproject.toml`, `front/package.json`. De la Fase 1: `fastembed` 7.6.1, `usearch` 2.26.6, `rayon` 1.12.0 (crates.io, verificado).
 
 ## Generación de código desde los .proto
 
@@ -78,7 +78,7 @@ Esta máquina (Windows) no tiene Go, Rust, ni buf instalados — solo Node 24, P
 
 - `neo-model` (Python): servidor levantado localmente, `Health` y `Decide` probados con un cliente gRPC real.
 - `neo-api` (Go): `go mod tidy && go build ./... && go vet ./... && go test -race ./...` corridos dentro de `golang:1.27.3-bookworm` (ver comando de generación arriba como plantilla; cambia `buf generate` por `go build ./...` etc.). Encontró y corrigió un bug real de doble `close()` en `internal/events/broker.go`.
-- `neo-vector` (Rust): `cargo build --release && cargo test` corridos dentro de `rust:1.99.1-bookworm` con `cmake` instalado.
+- `neo-vector` (Rust): `cargo build --release && cargo test` corridos dentro de `rust:1.99.1-trixie` (no bookworm, ver Fase 1) con `cmake` instalado.
 - `front` (TS): `npm install`, `npx tsc --noEmit` corridos localmente con Node. **Limitación conocida**: `npx eslint .` no corre todavía — `typescript-eslint@8.72.1` rechaza explícitamente TypeScript 7.0 (ver [issue #10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940), sin resolver aguas arriba). Se intentó el alias de npm a `@typescript/typescript6` que sugiere el brief, pero el `overrides` de npm no logra evitar el hoisting al único `typescript@7.0.2` del árbol (queda "invalid"). `tsc --noEmit` sí corre limpio con TS7 real.
 
 ## Fase 0: verificada de punta a punta
@@ -92,7 +92,44 @@ En el camino salieron y se corrigieron tres bugs reales (no hipotéticos):
 2. **Carrera entre un run simulado (rápido) y el cliente SSE suscribiéndose**: sin latencia artificial, un run podía terminar y cerrar su topic antes de que el `GET /api/runs/{id}/events` llegara a suscribirse, y el navegador no veía nada. El Broker ahora guarda un backlog acotado por topic (256 eventos) y lo reproduce a quien se suscribe tarde, incluso después de `Close()`.
 3. **Volumen de PostgreSQL mal montado**: Postgres 18+ cambió la convención de `/var/lib/postgresql/data` a `/var/lib/postgresql` (ver `compose.yaml`); con el montaje viejo el contenedor no arrancaba.
 
+## Fase 1: embeddings y búsqueda real en neo-vector
+
+`neo-vector` ya no simula: `Upsert` embebe los documentos que no traen vector
+(fastembed-rs, modelo `intfloat/multilingual-e5-small`, 384 dim, CPU) y
+`Search` embebe `query_text` si no viene `query_vector`. Decisiones tomadas
+con Oscar (ver Preguntas abiertas): **multilingual-e5-small** para embeddings,
+**usearch** (HNSW) como índice de producción, comparado contra un índice
+propio de fuerza bruta en paralelo con `rayon` (`vector/src/index/`), que
+además sirve de referencia exacta para medir recall. GPU confirmada para
+fases futuras: **RTX 4060** (no se usó aquí — fastembed en CPU fue
+suficiente, ver brief: "Fases 0-2 corren en CPU").
+
+**Medido de verdad** (no simulado), a 2000 documentos sintéticos (`data/generate_documents.py`, categorías contrato/factura/reporte) — la corrida completa al millón que pide el brief quedó pendiente, ver abajo:
+- **recall@10 = 0.993** (100 consultas de muestra, `bench/measure_recall.py` comparando usearch contra el índice de fuerza bruta).
+- **p95 de búsqueda secuencial: 32.3 ms** (incluye red + embedding de la query).
+- **p95 bajo carga concurrente (ghz, 10 conexiones): 209.5 ms** (`bench/loadtest.sh`) — más alto que el secuencial porque `Embedder` protege el modelo de fastembed con un `Mutex` (`vector/src/embed/mod.rs`): todas las llamadas de embedding se serializan, es el cuello de botella real bajo concurrencia. Queda como mejora de la Fase 4 (pool de instancias del modelo, o afinar el threading de `ort`), no se tocó aquí.
+
+**Pendiente, explícito**: correr `data/generate_documents.py --n 1000000`, cargar con `data/bulk_load.py` en ambas instancias (`compose.bench.yaml` levanta la de fuerza bruta en el puerto 50061) y repetir `bench/measure_recall.py` + `bench/loadtest.sh` a esa escala. A ~120 docs/s de carga por instancia (medido), son ~2.3h por instancia — se decidió explícitamente no correrlo todavía; la metodología ya está validada end-to-end a escala pequeña.
+
+Verificado con Docker real, no solo "debería compilar":
+- `cargo build --release` y `cargo test` (4/4) corridos en `rust:1.99.1-trixie`. **Bookworm no sirve para este crate**: el runtime de ONNX que trae `ort` (dependencia de fastembed) necesita símbolos de glibc 2.38+ (`__isoc23_strtol` y afines) que Debian bookworm (glibc 2.36) no tiene — error de linking real, no hipotético. `vector/Dockerfile` usa `rust:1.99.1-trixie` / `debian:trixie-slim` para build y runtime (se abandonó `distroless` ahí: fastembed/onnxruntime necesitan más libs del sistema).
+- `docker compose build/up` real, `Upsert` + `Search` probados con texto real en español vía gRPC: la consulta "factura atrasada que hay que cobrar" encontró correctamente las dos facturas vencidas por encima de un contrato y un reporte — similitud semántica real, no coincidencia de palabras.
+- El modelo (~470MB) se cachea en el volumen `neo-vector-model-cache` (`/data/.fastembed_cache` dentro del contenedor); sin ese volumen se vuelve a bajar en cada `recreate`.
+
+## Front: app completa con modo demo (nov 2026)
+
+`front/` es una app de 5 pantallas (Centro de control, Playground, Historial,
+Workflows, Fine-tuning) con Tailwind v4 (`@tailwindcss/vite`, tokens en
+`src/index.css`), `lucide-react` y fuentes Geist locales. Lo que importa saber:
+
+- **Toda la UI habla con `NeoGateway`** (`src/api/gateway.ts`), con dos estrategias: `live` (HTTP + SSE reales, `src/api/client.ts`) y `demo` (simulación en el navegador con el mismo contrato, `src/api/mock/`). En modo `auto` se elige sondeando `/healthz`. Guía: `front/src/components/docs/guides/NeoGateway.md`.
+- **`src/api/types.ts` es el espejo del contrato** de `back/internal/runs/events.go`, `jobs/service.go` y `httpapi/handlers.go`. Si cambia un payload allá, cambia aquí.
+- `src/api/sse.ts` **cierra el `EventSource` al recibir el evento terminal**: neo-api cierra el stream al terminar y el Broker reproduce el backlog, así que sin ese cierre los eventos se repetían cada ~3 s (bug real del front de Fase 0). Los reducers además descartan ids repetidos.
+- El historial de runs vive en `localStorage` porque neo-api aún no expone un listado de `decisions`.
+- `/healthz` hoy solo revisa `postgres`; la UI muestra neo-vector/neo-model como "sin sonda" hasta que Go agregue sus checks (los lee solos si aparecen en `deps`).
+
 Lo que queda pendiente, explícitamente fuera de este alcance:
 
 - [ ] Resolver o aceptar como deuda técnica el bloqueo de `typescript-eslint` contra TS7 (`npm run lint` no corre; `tsc --noEmit` sí).
-- [ ] Preguntas abiertas del brief (GPU disponible, modelo System One, modelo de embeddings, acceso a Jev, categorías del caso sintético, metas numéricas) — decisión de Oscar, no del agente.
+- [ ] Benchmark de Fase 1 al millón de vectores (ver sección Fase 1 arriba) — metodología ya validada a 2000, falta la corrida larga.
+- [ ] Preguntas abiertas del brief que siguen pendientes: modelo System One a usar, acceso a Jev, categorías reales del caso de clasificación (las de `data/generate_documents.py` son un placeholder razonable, no una decisión final), metas numéricas de cada métrica. **Ya resueltas con Oscar**: GPU = RTX 4060; modelo de embeddings = `intfloat/multilingual-e5-small`; índice ANN = `usearch` (comparado contra fuerza bruta propia).

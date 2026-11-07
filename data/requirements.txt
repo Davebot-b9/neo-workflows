@@ -1,0 +1,4 @@
+# Para data/*.py y bench/*.py (comparten los stubs generados en data/genproto).
+grpcio==1.85.1
+grpcio-tools==1.85.1
+protobuf==7.36.2

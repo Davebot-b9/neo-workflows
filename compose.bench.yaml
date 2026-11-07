@@ -1,0 +1,26 @@
+name: neo-workflows
+
+# Overlay solo para la Fase 1: levanta una segunda instancia de neo-vector
+# con el índice propio (fuerza bruta) para comparar contra la de usearch del
+# compose.yaml normal. No es parte de la arquitectura de producción del
+# demo — solo existe para bench/measure_recall.py.
+#
+# Uso: docker compose -f compose.yaml -f compose.bench.yaml up -d neo-vector neo-vector-exact
+services:
+  neo-vector-exact:
+    build:
+      context: .
+      dockerfile: vector/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "50061:50051"
+    environment:
+      NEO_VECTOR_INDEX_IMPL: bruteforce
+    volumes:
+      - neo-vector-model-cache:/data
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=:50051", "-service=neo.v1.VectorService"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s

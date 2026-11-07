@@ -36,12 +36,19 @@ services:
     restart: unless-stopped
     ports:
       - "50051:50051"
+    environment:
+      NEO_VECTOR_INDEX_IMPL: ${NEO_VECTOR_INDEX_IMPL:-usearch}
+      NEO_VECTOR_CAPACITY: ${NEO_VECTOR_CAPACITY:-100000}
+    volumes:
+      # El modelo de embeddings (~470MB) se baja una vez de Hugging Face y se
+      # cachea aquí; sin esto, cada recreate del contenedor lo vuelve a bajar.
+      - neo-vector-model-cache:/data
     healthcheck:
       test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=:50051", "-service=neo.v1.VectorService"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 60s
 
   neo-model:
     build:
@@ -89,3 +96,4 @@ services:
 
 volumes:
   neo-postgres-data:
+  neo-vector-model-cache:
