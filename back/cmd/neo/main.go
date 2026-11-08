@@ -102,11 +102,15 @@ func run() error {
 	runsSvc := runs.NewDecisionService(workflows, vector, providers, broker, ledgerWriter)
 	jobsSvc := jobs.NewJobService(model, broker)
 
+	// postgres es crítico (503 si falla, lo usa el healthcheck de Docker);
+	// neo-vector y neo-model se reportan pero no tumban a neo-api.
 	checks := []httpapi.HealthCheck{
-		{Name: "postgres", Fn: func(ctx context.Context) error { return pool.Ping(ctx) }},
+		{Name: "postgres", Critical: true, Fn: func(ctx context.Context) error { return pool.Ping(ctx) }},
+		{Name: "neo-vector", Fn: vector.Health},
+		{Name: "neo-model", Fn: model.Health},
 	}
 
-	server := httpapi.NewServer(runsSvc, jobsSvc, workflows, checks)
+	server := httpapi.NewServer(runsSvc, jobsSvc, workflows, ledger.NewReader(pool), checks)
 
 	httpServer := &http.Server{
 		Addr:    cfg.HTTPAddr,

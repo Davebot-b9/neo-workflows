@@ -3,8 +3,13 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
+
+	"neo-api/internal/ledger"
 )
 
 type startRunRequest struct {
@@ -88,22 +93,65 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
+	// En paralelo: el tiempo de /healthz es el del check más lento, no la suma.
+	results := make([]error, len(s.checks))
+	var wg sync.WaitGroup
+	for i, check := range s.checks {
+		wg.Go(func() { results[i] = check.Fn(ctx) })
+	}
+	wg.Wait()
+
 	deps := make(map[string]string, len(s.checks))
-	ok := true
-	for _, check := range s.checks {
-		if err := check.Fn(ctx); err != nil {
+	ok, criticalOK := true, true
+	for i, check := range s.checks {
+		if err := results[i]; err != nil {
 			deps[check.Name] = err.Error()
 			ok = false
+			if check.Critical {
+				criticalOK = false
+			}
 			continue
 		}
 		deps[check.Name] = "ok"
 	}
 
 	status := http.StatusOK
-	if !ok {
+	if !criticalOK {
 		status = http.StatusServiceUnavailable
 	}
 	writeJSON(w, status, healthzResponse{OK: ok, Deps: deps})
+}
+
+const (
+	defaultRunsLimit = 50
+	maxRunsLimit     = 500
+)
+
+// handleListRuns devuelve las últimas decisiones de la bitácora (solo lectura).
+func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
+	limit := defaultRunsLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, "limit debe ser un entero positivo")
+			return
+		}
+		limit = min(n, maxRunsLimit)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	records, err := s.decisions.Recent(ctx, limit)
+	if err != nil {
+		slog.Error("httpapi: listando decisions", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "no se pudo leer la bitácora")
+		return
+	}
+	if records == nil {
+		records = []ledger.Record{}
+	}
+	writeJSON(w, http.StatusOK, records)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

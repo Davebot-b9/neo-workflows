@@ -46,3 +46,16 @@ func (c *Client) Search(ctx context.Context, collection, queryText string, topK 
 	}
 	return matches, nil
 }
+
+// Health consulta el RPC Health de neo-vector (vector.proto). Error si no
+// responde o si responde ok=false.
+func (c *Client) Health(ctx context.Context) error {
+	resp, err := c.conn.Health(ctx, connect.NewRequest(&neov1.HealthRequest{}))
+	if err != nil {
+		return fmt.Errorf("neo-vector Health: %w", err)
+	}
+	if !resp.Msg.GetOk() {
+		return fmt.Errorf("neo-vector no está listo: %s", resp.Msg.GetDetail())
+	}
+	return nil
+}

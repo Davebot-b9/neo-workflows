@@ -70,3 +70,16 @@ func (c *Client) WatchJob(ctx context.Context, jobID string) iter.Seq2[JobEvent,
 		}
 	}
 }
+
+// Health consulta el RPC Health de neo-model (model.proto). Error si no
+// responde o si responde ok=false.
+func (c *Client) Health(ctx context.Context) error {
+	resp, err := c.conn.Health(ctx, connect.NewRequest(&neov1.ModelHealthRequest{}))
+	if err != nil {
+		return fmt.Errorf("neo-model Health: %w", err)
+	}
+	if !resp.Msg.GetOk() {
+		return fmt.Errorf("neo-model no está listo: %s", resp.Msg.GetDetail())
+	}
+	return nil
+}

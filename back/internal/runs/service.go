@@ -89,7 +89,7 @@ func (s *DecisionService) run(runID string, wf *workflow.Workflow, text string) 
 		return
 	}
 
-	s.stageCascade(runID, wf, resp, decideLatency)
+	s.stageCascade(runID, wf, text, resp, decideLatency)
 
 	s.broker.Publish(runID, "run.done", mustJSON(DonePayload{RunID: runID}))
 }
@@ -149,7 +149,7 @@ func (s *DecisionService) stageDecide(ctx context.Context, runID string, wf *wor
 	return resp, elapsed, nil
 }
 
-func (s *DecisionService) stageCascade(runID string, wf *workflow.Workflow, resp provider.Response, decideLatency time.Duration) {
+func (s *DecisionService) stageCascade(runID string, wf *workflow.Workflow, text string, resp provider.Response, decideLatency time.Duration) {
 	start := time.Now()
 	s.publishStage(runID, "cascada", "started", 0)
 
@@ -175,6 +175,7 @@ func (s *DecisionService) stageCascade(runID string, wf *workflow.Workflow, resp
 		WorkflowVersion: wf.Version,
 		Provider:        policy.SelectProvider(wf),
 		Model:           resp.Model,
+		InputText:       text,
 		Answers:         answersJSON,
 		Confidence:      confidence,
 		Route:           route,
