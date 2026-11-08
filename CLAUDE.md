@@ -261,8 +261,79 @@ Workflows, Fine-tuning) con Tailwind v4 (`@tailwindcss/vite`, tokens en
 - Para probar con texto acentuado, no uses `curl -d` desde Git Bash en Windows: corrompe el UTF-8 en la línea de comandos antes de enviarlo (verificado: el mismo body desde Linux o el navegador llega bien). Usa `--data-binary @archivo.json` o prueba desde un contenedor.
 - **Operar el stack sin interrumpir a otros**: siempre con los dos archivos (`-f compose.yaml -f compose.gpu.yaml`, así se levantó) y `up -d --no-deps <servicio>` para recrear solo lo que cambió. Construir (`compose build`) no toca contenedores en ejecución.
 
+## Fase 4: trazas distribuidas y carga real (nov 2026)
+
+Instrumentación completa con OpenTelemetry en los 4 lenguajes, exportando por
+OTLP a Jaeger (`docker compose`, servicio `jaeger`, UI en `localhost:16686`):
+
+- **Go** (`back/internal/otelsetup`): `otelhttp` en el handler HTTP (extrae el
+  `traceparent` del navegador) + interceptor `otelconnect` en cada cliente
+  gRPC (`vectorclient`, `modelclient`, `provider/local`) para propagarlo a
+  Rust y Python.
+- **Rust** (`vector/src/otel.rs`): tonic no tiene middleware oficial de OTel
+  todavía, así que el `traceparent` se extrae a mano de los metadata gRPC
+  entrantes (`opentelemetry::propagation::Extractor` sobre
+  `tonic::metadata::MetadataMap`) y el span se parenta con
+  `tracing_opentelemetry::OpenTelemetrySpanExt::set_parent` +
+  `tracing::Instrument` (no sirve `span.enter()` a través de un `.await`).
+- **Python** (`model/neo_model/otel_setup.py`): `GrpcInstrumentorServer().instrument()`
+  parchea `grpc.server()` antes de crearlo — extrae el contexto y abre el
+  span de cada RPC solo, sin tocar `decide.py` ni `jobs.py`.
+- **TypeScript** (`front/src/otel.ts`): `@opentelemetry/instrumentation-fetch`
+  instrumenta el `fetch` global que ya usa `src/api/client.ts`; exporta por
+  OTLP/**HTTP** (el navegador no puede hablar gRPC) a `localhost:4318`. Como
+  `/api` es same-origin (proxy de Vite o de nginx), no hace falta
+  `propagateTraceHeaderCorsUrls`.
+
+**Gotcha real de versiones (npm)**: el ecosistema `@opentelemetry/*` está a
+mitad de una migración — `resources`/`instrumentation`/`exporter-trace-otlp-http`
+ya saltaron a depender de `api@>=1.10.0`, pero `sdk-trace-web` (el único
+paquete que da `WebTracerProvider` para navegador) sigue en `2.12.0` y pide
+`api@<1.10.0`. No hay combinación de "todo lo último" que resuelva sin
+conflicto de peer deps. Se fijó el tren viejo y consistente: `api@1.9.1`,
+`sdk-trace-web@2.12.0`, `resources@2.12.0`, `instrumentation@0.223.0`,
+`instrumentation-fetch@0.223.0`, `exporter-trace-otlp-http@0.223.0`,
+`context-zone@2.12.0` — verificado que resuelve sin `ERESOLVE` y que
+`BatchSpanProcessor` de ese tren todavía toma `(exporter, config?)` posicional
+(no el `{exporter}` por opciones de la nueva `@opentelemetry/sdk-trace`, que
+es a donde migra `sdk-trace-base@2.12.0` por dentro vía un shim de
+compatibilidad — `BasicTracerProvider` ahí ya es solo un wrapper).
+
+**Bug real encontrado y corregido** (no hipotético): el primer run de prueba
+mostró el span de `POST /api/runs` sin hijos en Jaeger. `runs.Service.run()`
+procesa cada run en un goroutine de fondo (`go s.run(...)`, ver
+`StartRun`/`Events` arriba en Contratos) con `context.Background()` nuevo,
+desconectado del contexto de la request HTTP — correcto para no heredar su
+cancelación (el run sigue vivo después de que `POST /api/runs` ya respondió
+el `run_id`), pero también perdía el traceparent. Se corrigió con
+`context.WithoutCancel(ctx)` (Go 1.21+): hereda los valores del contexto
+(incluida la traza) sin heredar la cancelación. `handleStartRun` ahora pasa
+`r.Context()` a `StartRun`.
+
+**Verificado de punta a punta, no solo "debería funcionar"**: un run real
+disparado desde la UI en Docker (no un curl suelto) produjo una sola traza
+de 6 spans en Jaeger — `web` → `neo-api POST /api/runs` → (`VectorService/Search`
+→ `neo-vector.search`) y (`ModelService/Decide` → `neo-model Decide`) —
+parentada correctamente en las 4 capas. Detalle completo y el benchmark de
+carga en `bench/fase4_trazas_carga.md`.
+
+**Medido de verdad con k6** (`bench/fase4_loadtest.js`, contra el stack
+completo en Docker, GPU real) — resumen, ver el reporte para la tabla y el
+porqué: a 2 VUs concurrentes el pipeline responde sano (p50 2.4s, p95 3.8s,
+0 timeouts); a 10 VUs **el 81% de los runs (487/600) expira** a los 30s de
+`runTimeout` (`"context deadline exceeded"` en el log de `neo-api`). Causa
+real: ni `neo-model` (un `DecisionEngine` único en GPU, serializado por
+`engine_lock`, sin batching) ni `neo-vector` (`fastembed` tras un `Mutex`,
+ya identificado como cuello de botella en la Fase 1) escalan horizontalmente
+hoy — son procesos con estado en memoria, no servicios sin estado
+replicables. **Decisión pendiente con Oscar, no tomada aquí**: pool de
+instancias, batching de `Decide`, o aceptar la cola con una señal visible en
+el front — cualquiera de las tres antes de llevar esta pieza a un
+"Ecosistema Ferrer IA" con más de un puñado de usuarios concurrentes.
+
 Lo que queda pendiente, explícitamente fuera de este alcance:
 
 - [ ] Resolver o aceptar como deuda técnica el bloqueo de `typescript-eslint` contra TS7 (`npm run lint` no corre; `tsc --noEmit` sí).
 - [ ] Benchmark de Fase 1 al millón de vectores (ver sección Fase 1 arriba) — metodología ya validada a 2000, falta la corrida larga.
 - [ ] Preguntas abiertas del brief que siguen pendientes: acceso a Jev, categorías reales del caso de clasificación (las de `data/generate_documents.py` son un placeholder razonable, no una decisión final), metas numéricas de cada métrica. **Ya resueltas con Oscar**: GPU = RTX 4060 (8GB); modelo de embeddings = `intfloat/multilingual-e5-small`; índice ANN = `usearch` (comparado contra fuerza bruta propia); modelo System One = `OmniJev/OneJev-0.8B` vía `qev`.
+- [ ] **Cuello de botella de concurrencia de la Fase 4** (ver arriba): decidir pool/batching/cola visible antes de producción multi-usuario — no implementado, es justo la decisión que pide el brief para esta fase.

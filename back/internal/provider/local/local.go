@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	"connectrpc.com/otelconnect"
 
 	neov1 "neo-api/internal/genproto/neo/v1"
 	"neo-api/internal/genproto/neo/v1/neov1connect"
@@ -20,7 +21,14 @@ type Adapter struct {
 
 func New(addr string) *Adapter {
 	httpClient := grpcconn.NewH2CClient()
-	client := neov1connect.NewModelServiceClient(httpClient, grpcconn.BaseURL(addr), connect.WithGRPC())
+	interceptor, err := otelconnect.NewInterceptor()
+	if err != nil {
+		panic(fmt.Errorf("provider/local: armando el interceptor de otel: %w", err))
+	}
+	client := neov1connect.NewModelServiceClient(
+		httpClient, grpcconn.BaseURL(addr),
+		connect.WithGRPC(), connect.WithInterceptors(interceptor),
+	)
 	return &Adapter{client: client}
 }
 

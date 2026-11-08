@@ -15,11 +15,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"neo-api/internal/events"
 	"neo-api/internal/httpapi"
 	"neo-api/internal/jobs"
 	"neo-api/internal/ledger"
 	"neo-api/internal/modelclient"
+	"neo-api/internal/otelsetup"
 	"neo-api/internal/provider"
 	"neo-api/internal/providerfactory"
 	"neo-api/internal/runs"
@@ -67,6 +70,18 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	shutdownTracing, err := otelsetup.Init(ctx, "neo-api")
+	if err != nil {
+		return fmt.Errorf("iniciando OpenTelemetry: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			slog.Warn("neo-api: cerrando el exporter de trazas", "error", err)
+		}
+	}()
+
 	workflows, err := workflow.LoadDir(cfg.WorkflowsDir)
 	if err != nil {
 		return fmt.Errorf("cargando workflows: %w", err)
@@ -112,9 +127,12 @@ func run() error {
 
 	server := httpapi.NewServer(runsSvc, jobsSvc, workflows, ledger.NewReader(pool), checks)
 
+	// otelhttp extrae el traceparent que manda el navegador (W3C Trace
+	// Context) y abre el span raíz de cada request; de ahí para adentro,
+	// los clientes de vectorclient/modelclient/provider/local lo propagan.
 	httpServer := &http.Server{
 		Addr:    cfg.HTTPAddr,
-		Handler: server,
+		Handler: otelhttp.NewHandler(server, "neo-api"),
 	}
 
 	errCh := make(chan error, 1)

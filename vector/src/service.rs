@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use tonic::{Request, Response, Status};
+use tracing::Instrument;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::embed::Embedder;
 use crate::index::VectorIndex;
@@ -15,6 +17,7 @@ use crate::neov1::{
     HealthRequest, HealthResponse, Match, SearchRequest, SearchResponse, UpsertRequest,
     UpsertResponse,
 };
+use crate::otel::extract_parent_context;
 
 #[derive(Clone)]
 struct DocMeta {
@@ -46,102 +49,126 @@ impl VectorService for VectorServiceImpl {
         &self,
         request: Request<UpsertRequest>,
     ) -> Result<Response<UpsertResponse>, Status> {
-        let req = request.into_inner();
+        let parent_cx = extract_parent_context(request.metadata());
+        let span = tracing::info_span!("neo-vector.upsert");
+        let _ = span.set_parent(parent_cx);
 
-        // Documentos sin vector precalculado: se embeben en un solo batch
-        // (fastembed es mucho más eficiente por lotes que uno por uno).
-        let to_embed: Vec<String> = req
-            .documents
-            .iter()
-            .filter(|d| d.vector.is_empty())
-            .map(|d| d.text.clone())
-            .collect();
-        let mut computed = self
-            .embedder
-            .embed_passages(to_embed)
-            .await
-            .map_err(|e| Status::internal(format!("embeddings: {e}")))?
-            .into_iter();
+        async move {
+            let req = request.into_inner();
 
-        let mut upserted: u64 = 0;
-        let mut docs = self.docs.write().unwrap();
-        for doc in &req.documents {
-            let vector: Vec<f32> = if doc.vector.is_empty() {
-                computed.next().ok_or_else(|| {
-                    Status::internal("embeddings: faltaron vectores calculados")
-                })?
-            } else {
-                doc.vector.clone()
-            };
+            // Documentos sin vector precalculado: se embeben en un solo batch
+            // (fastembed es mucho más eficiente por lotes que uno por uno).
+            let to_embed: Vec<String> = req
+                .documents
+                .iter()
+                .filter(|d| d.vector.is_empty())
+                .map(|d| d.text.clone())
+                .collect();
+            let mut computed = self
+                .embedder
+                .embed_passages(to_embed)
+                .await
+                .map_err(|e| Status::internal(format!("embeddings: {e}")))?
+                .into_iter();
 
-            self.index
-                .upsert(doc.id, &vector)
-                .map_err(|e| Status::internal(format!("índice: {e}")))?;
-            docs.insert(
-                doc.id,
-                DocMeta {
-                    text: doc.text.clone(),
-                    metadata: doc.metadata.clone(),
-                },
-            );
-            upserted += 1;
+            let mut upserted: u64 = 0;
+            let mut docs = self.docs.write().unwrap();
+            for doc in &req.documents {
+                let vector: Vec<f32> = if doc.vector.is_empty() {
+                    computed.next().ok_or_else(|| {
+                        Status::internal("embeddings: faltaron vectores calculados")
+                    })?
+                } else {
+                    doc.vector.clone()
+                };
+
+                self.index
+                    .upsert(doc.id, &vector)
+                    .map_err(|e| Status::internal(format!("índice: {e}")))?;
+                docs.insert(
+                    doc.id,
+                    DocMeta {
+                        text: doc.text.clone(),
+                        metadata: doc.metadata.clone(),
+                    },
+                );
+                upserted += 1;
+            }
+
+            Ok(Response::new(UpsertResponse { upserted }))
         }
-
-        Ok(Response::new(UpsertResponse { upserted }))
+        .instrument(span)
+        .await
     }
 
     async fn search(
         &self,
         request: Request<SearchRequest>,
     ) -> Result<Response<SearchResponse>, Status> {
-        let req = request.into_inner();
-        let top_k = if req.top_k == 0 { 5 } else { req.top_k };
+        let parent_cx = extract_parent_context(request.metadata());
+        let span = tracing::info_span!("neo-vector.search");
+        let _ = span.set_parent(parent_cx);
 
-        let query_vector = if !req.query_vector.is_empty() {
-            req.query_vector
-        } else if !req.query_text.is_empty() {
-            self.embedder
-                .embed_query(req.query_text)
-                .await
-                .map_err(|e| Status::internal(format!("embeddings: {e}")))?
-        } else {
-            return Err(Status::invalid_argument(
-                "search necesita query_vector o query_text",
-            ));
-        };
+        async move {
+            let req = request.into_inner();
+            let top_k = if req.top_k == 0 { 5 } else { req.top_k };
 
-        let results = self
-            .index
-            .search(&query_vector, top_k as usize)
-            .map_err(|e| Status::internal(format!("índice: {e}")))?;
+            let query_vector = if !req.query_vector.is_empty() {
+                req.query_vector
+            } else if !req.query_text.is_empty() {
+                self.embedder
+                    .embed_query(req.query_text)
+                    .await
+                    .map_err(|e| Status::internal(format!("embeddings: {e}")))?
+            } else {
+                return Err(Status::invalid_argument(
+                    "search necesita query_vector o query_text",
+                ));
+            };
 
-        let docs = self.docs.read().unwrap();
-        let matches = results
-            .into_iter()
-            .map(|(id, score)| {
-                let (text, metadata) = docs
-                    .get(&id)
-                    .map(|d| (d.text.clone(), d.metadata.clone()))
-                    .unwrap_or_default();
-                Match {
-                    id,
-                    score,
-                    text,
-                    metadata,
-                }
-            })
-            .collect();
+            let results = self
+                .index
+                .search(&query_vector, top_k as usize)
+                .map_err(|e| Status::internal(format!("índice: {e}")))?;
 
-        Ok(Response::new(SearchResponse { matches }))
+            let docs = self.docs.read().unwrap();
+            let matches = results
+                .into_iter()
+                .map(|(id, score)| {
+                    let (text, metadata) = docs
+                        .get(&id)
+                        .map(|d| (d.text.clone(), d.metadata.clone()))
+                        .unwrap_or_default();
+                    Match {
+                        id,
+                        score,
+                        text,
+                        metadata,
+                    }
+                })
+                .collect();
+
+            Ok(Response::new(SearchResponse { matches }))
+        }
+        .instrument(span)
+        .await
     }
 
     async fn health(
         &self,
-        _request: Request<HealthRequest>,
+        request: Request<HealthRequest>,
     ) -> Result<Response<HealthResponse>, Status> {
-        Ok(Response::new(HealthResponse {
-            ok: true,
-            detail: format!("fase-1, {} vectores indexados", self.index.len()),
-        }))
+        let parent_cx = extract_parent_context(request.metadata());
+        let span = tracing::info_span!("neo-vector.health");
+        let _ = span.set_parent(parent_cx);
+
+        async move {
+            Ok(Response::new(HealthResponse {
+                ok: true,
+                detail: format!("fase-1, {} vectores indexados", self.index.len()),
+            }))
+        }
+        .instrument(span)
+        .await
     }
 }

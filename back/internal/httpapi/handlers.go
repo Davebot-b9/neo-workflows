@@ -28,7 +28,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, err := s.runs.StartRun(req.Workflow, req.Text)
+	runID, err := s.runs.StartRun(r.Context(), req.Workflow, req.Text)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

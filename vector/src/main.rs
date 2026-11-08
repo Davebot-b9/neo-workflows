@@ -3,6 +3,7 @@
 
 mod embed;
 mod index;
+mod otel;
 mod service;
 
 pub mod neov1 {
@@ -12,7 +13,6 @@ pub mod neov1 {
 use std::sync::Arc;
 
 use tonic::transport::Server;
-use tracing_subscriber::EnvFilter;
 
 use embed::Embedder;
 use index::bruteforce::BruteForceIndex;
@@ -23,9 +23,7 @@ use service::VectorServiceImpl;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .init();
+    let tracer_provider = otel::init("neo-vector")?;
 
     let addr = std::env::var("NEO_VECTOR_GRPC_ADDR")
         .unwrap_or_else(|_| "[::]:50051".to_string())
@@ -66,6 +64,10 @@ async fn main() -> anyhow::Result<()> {
         )))
         .serve_with_shutdown(addr, shutdown_signal())
         .await?;
+
+    if let Err(e) = tracer_provider.shutdown() {
+        tracing::warn!(error = %e, "error cerrando el tracer provider de otel");
+    }
 
     Ok(())
 }

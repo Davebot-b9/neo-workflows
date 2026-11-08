@@ -19,6 +19,15 @@ dependencies = [
     "safetensors==0.8.0",
     # Fase 3: LoRA real sobre el mismo modelo (ver model/neo_model/train/lora.py).
     "peft==0.21.2",
+    # Fase 4: trazas distribuidas, exportadas por OTLP/gRPC a Jaeger (igual
+    # que neo-api y neo-vector). GrpcInstrumentorServer extrae el
+    # traceparent entrante y crea el span por RPC automáticamente.
+    "opentelemetry-api==1.45.2",
+    "opentelemetry-sdk==1.45.2",
+    "opentelemetry-exporter-otlp-proto-grpc==1.45.2",
+    "opentelemetry-instrumentation==0.66b2",
+    "opentelemetry-instrumentation-grpc==0.66b2",
+    "opentelemetry-semantic-conventions==0.66b2",
 ]
 
 [dependency-groups]

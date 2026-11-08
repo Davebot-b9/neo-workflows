@@ -50,14 +50,17 @@ func NewDecisionService(
 
 // StartRun valida el workflow, arranca el run en segundo plano y devuelve de
 // inmediato el run_id: el front se suscribe a Events(runID) para verlo avanzar.
-func (s *DecisionService) StartRun(workflowID, text string) (runID string, err error) {
+// ctx solo se usa para heredar la traza de la request (context.WithoutCancel):
+// el run sigue corriendo después de que el handler HTTP ya respondió, así que
+// no puede quedar atado a la cancelación de esa request.
+func (s *DecisionService) StartRun(ctx context.Context, workflowID, text string) (runID string, err error) {
 	wf, ok := s.workflows.Get(workflowID)
 	if !ok {
 		return "", fmt.Errorf("workflow desconocido: %q", workflowID)
 	}
 
 	runID = uuid.NewString()
-	go s.run(runID, wf, text)
+	go s.run(context.WithoutCancel(ctx), runID, wf, text)
 	return runID, nil
 }
 
@@ -65,8 +68,8 @@ func (s *DecisionService) Events(runID string) (ch chan events.Event, unsubscrib
 	return s.broker.Subscribe(runID)
 }
 
-func (s *DecisionService) run(runID string, wf *workflow.Workflow, text string) {
-	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
+func (s *DecisionService) run(parentCtx context.Context, runID string, wf *workflow.Workflow, text string) {
+	ctx, cancel := context.WithTimeout(parentCtx, runTimeout)
 	defer cancel()
 	defer s.broker.Close(runID)
 

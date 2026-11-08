@@ -19,6 +19,7 @@ from neo.v1 import model_pb2, model_pb2_grpc  # noqa: E402
 
 from neo_model import decide as decide_mod
 from neo_model import jobs as jobs_mod
+from neo_model import otel_setup
 
 
 class ModelServiceServicer(model_pb2_grpc.ModelServiceServicer):
@@ -51,6 +52,10 @@ def serve() -> None:
     # no deja registrar un servicer después de server.start(), así que el
     # puerto no escucha hasta que el modelo está listo; compose.yaml le da un
     # start_period generoso al healthcheck para cubrir esta espera.
+    # GrpcInstrumentorServer parchea grpc.server(), así que tiene que
+    # instalarse antes de crear el servidor más abajo.
+    otel_setup.init("neo-model")
+
     print("cargando el modelo...", flush=True)
     t0 = time.perf_counter()
     engine = decide_mod.load_engine()
