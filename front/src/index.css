@@ -1,0 +1,169 @@
+@import "tailwindcss";
+
+/* El tema lo decide data-theme en <html> (ver app/theme). "dark:" sigue a ese atributo,
+   no a prefers-color-scheme, para que el selector manual siempre gane. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ── Tokens semánticos ─────────────────────────────────────────────
+   Los componentes solo usan estos roles (bg-surface, text-fg-muted…),
+   nunca hex sueltos. Cambiar la marca = cambiar este bloque. */
+:root {
+  color-scheme: light;
+  --canvas: #f6f6f4;
+  --surface: #ffffff;
+  --surface-2: #f1f1ee;
+  --surface-3: #e9e8e4;
+  --line: #e4e3de;
+  --line-strong: #cfcec8;
+  --fg: #0b0b0c;
+  --fg-muted: #52514e;
+  --fg-subtle: #7d7c77;
+  --accent: #5b4bf0;
+  --accent-strong: #4a3ad9;
+  --accent-fg: #ffffff;
+  --accent-soft: #ecebff;
+  --signal: #0891b2;
+  --good: #0a8f0a;
+  --good-soft: #e6f6e6;
+  --warn: #b77800;
+  --warn-soft: #fdf3dc;
+  --serious: #c9571f;
+  --serious-soft: #fdece4;
+  --critical: #d03b3b;
+  --critical-soft: #fbe9e9;
+  --series-1: #2a78d6;
+  --grid-dot: rgb(11 11 12 / 0.07);
+  --glow: rgb(91 75 240 / 0.12);
+  --shadow-color: 30 30 40;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #08080a;
+  --surface: #111114;
+  --surface-2: #18181c;
+  --surface-3: #212126;
+  --line: #24242a;
+  --line-strong: #34343c;
+  --fg: #f0efec;
+  --fg-muted: #a5a49e;
+  --fg-subtle: #706f6a;
+  --accent: #8b7dff;
+  --accent-strong: #a397ff;
+  --accent-fg: #0b0b0c;
+  --accent-soft: #1e1a3d;
+  --signal: #22d3ee;
+  --good: #3fbf3f;
+  --good-soft: #10260f;
+  --warn: #fab219;
+  --warn-soft: #2a2108;
+  --serious: #ec835a;
+  --serious-soft: #2c1910;
+  --critical: #e66767;
+  --critical-soft: #2d1414;
+  --series-1: #3987e5;
+  --grid-dot: rgb(240 239 236 / 0.06);
+  --glow: rgb(139 125 255 / 0.16);
+  --shadow-color: 0 0 0;
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", monospace;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-signal: var(--signal);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-serious: var(--serious);
+  --color-serious-soft: var(--serious-soft);
+  --color-critical: var(--critical);
+  --color-critical-soft: var(--critical-soft);
+  --color-series-1: var(--series-1);
+
+  --shadow-panel: 0 1px 2px rgb(var(--shadow-color) / 0.06), 0 8px 24px -12px rgb(var(--shadow-color) / 0.18);
+  --shadow-pop: 0 24px 64px -16px rgb(var(--shadow-color) / 0.45);
+
+  --animate-flow: flow 1.1s linear infinite;
+  --animate-fade-in: fade-in 0.25s ease-out both;
+  --animate-rise: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes flow {
+  to {
+    background-position: 24px 0;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  body {
+    @apply bg-canvas text-fg font-sans antialiased;
+    font-feature-settings: "ss01", "cv11";
+    /* Retícula de puntos + halo superior: textura "consola" sin ruido visual. */
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, var(--glow), transparent 70%),
+      radial-gradient(var(--grid-dot) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      22px 22px;
+    background-attachment: fixed;
+  }
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--fg);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Línea de datos animada (conectores del pipeline mientras una etapa corre). */
+@utility flow-line {
+  background-image: repeating-linear-gradient(90deg, var(--accent) 0 8px, transparent 8px 12px);
+  background-size: 24px 100%;
+  animation: var(--animate-flow);
+}

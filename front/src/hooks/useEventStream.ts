@@ -1,23 +1,22 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
-// Custom hook: un solo lugar para EventSource, reconexión y limpieza.
-// `types` y `onEvent` deben ser estables (constante o useCallback) para no reconectar.
-export function useEventStream<T>(
-  url: string | null,
-  types: readonly string[],
-  onEvent: (type: string, data: T) => void,
-) {
+import type { Unsubscribe } from "../lib/createStore";
+
+export type Subscribe<E> = (onEvent: (event: E) => void) => Unsubscribe;
+
+/**
+ * Conecta un stream de eventos (de cualquier NeoGateway) mientras haya
+ * `subscribe`. `subscribe` debe ser estable (useMemo/useCallback): cambiarlo
+ * reconecta. `onEvent` puede cambiar libremente, se lee por ref.
+ */
+export function useEventStream<E>(subscribe: Subscribe<E> | null, onEvent: (event: E) => void): void {
+  const handlerRef = useRef(onEvent);
   useEffect(() => {
-    if (!url) return;
-    const source = new EventSource(url); // reconecta y envía Last-Event-ID
-    const handlers = types.map((type) => {
-      const handler = (msg: MessageEvent<string>) => onEvent(type, JSON.parse(msg.data) as T);
-      source.addEventListener(type, handler);
-      return [type, handler] as const;
-    });
-    return () => {
-      handlers.forEach(([type, handler]) => source.removeEventListener(type, handler));
-      source.close();
-    };
-  }, [url, types, onEvent]);
+    handlerRef.current = onEvent;
+  });
+
+  useEffect(() => {
+    if (!subscribe) return;
+    return subscribe((event) => handlerRef.current(event));
+  }, [subscribe]);
 }

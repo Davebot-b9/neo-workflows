@@ -3,7 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>NEO Workflows</title>
+    <script>
+      // Aplica el tema antes del primer pintado para evitar el destello claro/oscuro.
+      (function () {
+        var pref = "system";
+        try {
+          pref = localStorage.getItem("neo.theme") || "system";
+        } catch (e) {}
+        var dark = pref === "dark" || (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

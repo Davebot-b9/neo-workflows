@@ -1,29 +1,42 @@
-export interface StageEvent {
+import type { DecisionPayload, RunEvent } from "../../api/types";
+
+export type {
+  AnswerPayload,
+  DecisionPayload as DecisionEvent,
+  DecisionRoute,
+  RunEvent,
+  StagePayload as StageEvent,
+} from "../../api/types";
+
+export type RunPhase = "idle" | "starting" | "streaming" | "done" | "error";
+
+export type StageUiStatus = "pending" | "running" | "done" | "error";
+
+export interface StageState {
   name: string;
-  status: "started" | "done" | "error";
-  ms: number;
+  status: StageUiStatus;
+  /** Duración que reporta neo-api al terminar la etapa. */
+  ms: number | null;
+  /** Hora local de inicio, para el cronómetro mientras corre. */
+  startedAt: number | null;
 }
 
-export interface AnswerPayload {
-  probabilities: Record<string, number>;
-  confidence: number;
+export interface LogEntry {
+  at: number;
+  event: RunEvent;
 }
 
-export interface DecisionEvent {
-  answers: Record<string, AnswerPayload>;
-  confidence: number;
-  route: "auto" | "llm" | "review";
+export interface RunState {
+  phase: RunPhase;
+  runId: string | null;
+  workflowId: string | null;
+  text: string;
+  startedAt: number | null;
+  finishedAt: number | null;
+  stages: StageState[];
+  decision: DecisionPayload | null;
+  error: string | null;
+  log: LogEntry[];
+  /** Último id de evento aplicado: los repetidos (reconexión, StrictMode) se ignoran. */
+  lastEventId: number;
 }
-
-export interface ErrorEvent {
-  error: string;
-}
-
-export type RunEventType = "run.stage" | "run.decision" | "run.done" | "run.error";
-
-export const RUN_EVENT_TYPES: readonly RunEventType[] = [
-  "run.stage",
-  "run.decision",
-  "run.done",
-  "run.error",
-];
