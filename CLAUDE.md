@@ -33,7 +33,7 @@ El brief llama a los servicios `web`, `api`/`neo-api`, `neo-vector`,
 
 ## Contratos
 
-- Front → `neo-api`: HTTP (comandos) + SSE (eventos), ver tabla de rutas en el brief (`POST /api/runs`, `GET /api/runs/{id}/events`, `POST /api/jobs/finetune`, `GET /api/jobs/{id}/events`, `GET /api/workflows`, `GET /healthz`).
+- Front → `neo-api`: HTTP (comandos) + SSE (eventos), ver tabla de rutas en el brief (`POST /api/runs`, `GET /api/runs/{id}/events`, `POST /api/jobs/finetune`, `GET /api/jobs/{id}/events`, `GET /api/workflows`, `GET /healthz`). Agregada después del brief: `GET /api/runs?limit=N` (default 50, máx 500), solo lectura de la bitácora `decisions` (`ledger.Reader`).
 - `neo-api` → `neo-vector` / `neo-model`: gRPC puro (no Connect), definido en `proto/neo/v1/*.proto`. Va en texto plano (h2c): `back/internal/grpcconn` arma el cliente HTTP/2 sin TLS que esto necesita.
 - La forma de una decisión imita la API System One (`DecideRequest`/`DecideResponse` en `proto/neo/v1/model.proto`) para que Jev y el modelo local sean intercambiables sin tocar la lógica.
 - **`Answer` es un oneof** (`noul` | `choice` | `score`), no un tipo genérico con `probabilities`+`confidence` para los tres. Verificado contra el código fuente real de `qev` (la librería de OneJev, `qev/schema.py` y `qev/answers.py` en github.com/OmniJev/OneJev — dice seguir el OpenAPI público de TypeSafe y está comprobado contra respuestas reales de Jev, MAE 0.013 en choice y 0.005 en score):
@@ -251,8 +251,15 @@ Workflows, Fine-tuning) con Tailwind v4 (`@tailwindcss/vite`, tokens en
 - **Toda la UI habla con `NeoGateway`** (`src/api/gateway.ts`), con dos estrategias: `live` (HTTP + SSE reales, `src/api/client.ts`) y `demo` (simulación en el navegador con el mismo contrato, `src/api/mock/`). En modo `auto` se elige sondeando `/healthz`. Guía: `front/src/components/docs/guides/NeoGateway.md`.
 - **`src/api/types.ts` es el espejo del contrato** de `back/internal/runs/events.go`, `jobs/service.go` y `httpapi/handlers.go`. Si cambia un payload allá, cambia aquí.
 - `src/api/sse.ts` **cierra el `EventSource` al recibir el evento terminal**: neo-api cierra el stream al terminar y el Broker reproduce el backlog, así que sin ese cierre los eventos se repetían cada ~3 s (bug real del front de Fase 0). Los reducers además descartan ids repetidos.
-- El historial de runs vive en `localStorage` porque neo-api aún no expone un listado de `decisions`.
-- `/healthz` hoy solo revisa `postgres`; la UI muestra neo-vector/neo-model como "sin sonda" hasta que Go agregue sus checks (los lee solos si aparecen en `deps`).
+- El historial combina `localStorage` (etapas, errores, runs demo) con la bitácora vía `GET /api/runs` (fuente de verdad de la decisión).
+- **`web` corre en Compose**: `front/Dockerfile` (build con Node, sirve nginx) en `http://localhost:5173` (`NEO_WEB_PORT`). `front/nginx.conf` hace proxy de `/api` y `/healthz` a neo-api con `proxy_buffering off` (sin eso el SSE llega a trozos) y resuelve `neo-api` por petición (`resolver 127.0.0.11`), así que recrear neo-api no deja a nginx con una IP vieja.
+
+## neo-api: health checks y bitácora legible (nov 2026)
+
+- `/healthz` revisa `postgres`, `neo-vector` y `neo-model` en paralelo (los dos últimos con su RPC `Health`, que ya estaba en el `.proto`). `HealthCheck.Critical`: solo `postgres` es crítico (503 → el healthcheck de Docker marca unhealthy). Si falla neo-vector o neo-model, la respuesta sigue en 200 con `ok:false`: neo-api sigue sirviendo workflows y bitácora, y reporta los errores por SSE.
+- **Bug real corregido**: la bitácora guardaba `input_text` vacío en todos los runs (`stageCascade` nunca llenaba `ledger.Decision.InputText`). Las filas anteriores al fix se quedan así: `decisions` es append-only.
+- Para probar con texto acentuado, no uses `curl -d` desde Git Bash en Windows: corrompe el UTF-8 en la línea de comandos antes de enviarlo (verificado: el mismo body desde Linux o el navegador llega bien). Usa `--data-binary @archivo.json` o prueba desde un contenedor.
+- **Operar el stack sin interrumpir a otros**: siempre con los dos archivos (`-f compose.yaml -f compose.gpu.yaml`, así se levantó) y `up -d --no-deps <servicio>` para recrear solo lo que cambió. Construir (`compose build`) no toca contenedores en ejecución.
 
 Lo que queda pendiente, explícitamente fuera de este alcance:
 

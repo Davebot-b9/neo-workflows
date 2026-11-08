@@ -4,8 +4,10 @@ name: neo-workflows
 #   docker compose up                                        (sin GPU; neo-model en CPU, lento)
 #   docker compose -f compose.yaml -f compose.gpu.yaml up     (con GPU; recomendado desde la Fase 2)
 #
-# `web` no está en Compose: corre en el host con `npm run dev` dentro de front/,
-# apuntando a http://localhost:8080 (ver puertos en CLAUDE.md).
+# `web` (front/) también corre aquí: nginx sirve el build y hace proxy de
+# /api y /healthz a neo-api → http://localhost:5173. Para desarrollar con
+# recarga en caliente sigue sirviendo `npm run dev` en front/ (si el 5173 está
+# ocupado por el contenedor, Vite toma el siguiente puerto libre).
 
 services:
   postgres:
@@ -107,6 +109,17 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  web:
+    build:
+      context: ./front
+    restart: unless-stopped
+    ports:
+      - "${NEO_WEB_PORT:-5173}:80"
+    depends_on:
+      # Solo que exista: nginx resuelve neo-api por petición, así que web
+      # arranca aunque neo-api tarde (y la UI muestra el estado en vivo).
+      - neo-api
 
 volumes:
   neo-postgres-data:

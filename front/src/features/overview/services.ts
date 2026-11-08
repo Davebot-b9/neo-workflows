@@ -26,9 +26,8 @@ export interface ServiceStatus {
 }
 
 /**
- * Estado de cada servicio según /healthz. Hoy neo-api solo revisa postgres;
- * neo-vector y neo-model aparecen como "sin sonda" hasta que Go agregue sus
- * health checks (la UI ya los lee si llegan en deps).
+ * Estado de cada servicio según /healthz (postgres, neo-vector y neo-model
+ * en deps). Si un neo-api viejo no reporta alguno, aparece como "sin sonda".
  */
 export function serviceStatus(id: ServiceId, health: HealthState, mode: GatewayMode): ServiceStatus {
   if (id === "web") return { tone: "good", label: "Activo" };

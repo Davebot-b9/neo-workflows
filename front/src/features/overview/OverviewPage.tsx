@@ -50,7 +50,8 @@ export function OverviewPage() {
               Nuevo run
             </Button>
             <Button onClick={() => navigate("/workflows")} leading={<WorkflowIcon className="size-4" aria-hidden />}>
-              {workflows.length || ""} Workflows
+              Workflows
+              {workflows.length > 0 && <span className="font-mono text-xs text-fg-subtle">{workflows.length}</span>}
             </Button>
           </div>
         </div>
