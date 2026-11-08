@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 # 668), pero el contenedor es de un solo uso, no hay nada más que proteger.
 RUN pip install --no-cache-dir --break-system-packages \
     grpcio==1.85.1 grpcio-tools==1.85.1 grpcio-health-checking==1.85.1 protobuf==7.36.2 \
-    transformers==5.22.2 accelerate==1.15.0 safetensors==0.8.0 \
+    transformers==5.22.2 accelerate==1.15.0 safetensors==0.8.0 peft==0.21.2 \
     pydantic==2.14.3 jinja2==3.1.6 pillow==13.0.0 fastapi==0.162.2 uvicorn==0.54.0
 
 # --no-deps: qev pide torch/torchvision por su cuenta (extra [torch]), pero

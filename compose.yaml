@@ -64,8 +64,14 @@ services:
       NEO_MODEL_PATH: ${NEO_MODEL_PATH:-OmniJev/OneJev-0.8B}
     volumes:
       # El modelo (~2.2GB) se baja una vez de Hugging Face y se cachea aquí;
-      # sin esto, cada recreate del contenedor lo vuelve a bajar.
+      # sin esto, cada recreate del contenedor lo vuelve a bajar. También
+      # guarda ahí los adaptadores LoRA que entrena la Fase 3 (/data/adapters).
       - neo-model-cache:/data
+      # Datasets sintéticos para fine-tuning (Fase 3), sin copiarlos a la imagen.
+      - ./data/generated:/datasets:ro
+      # El comparador de calibración antes/después (Fase 3) escribe su
+      # reporte aquí, directo al bench/ del repo.
+      - ./bench:/bench
     healthcheck:
       test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=:50052", "-service=neo.v1.ModelService"]
       interval: 10s

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from concurrent import futures
 
@@ -23,12 +24,18 @@ from neo_model import jobs as jobs_mod
 class ModelServiceServicer(model_pb2_grpc.ModelServiceServicer):
     def __init__(self, engine):
         self.engine = engine
+        # Un fine-tuning muta engine.model in-place (pega y despega LoRA) y
+        # lo pone en train(): un Decide() concurrente daría resultados
+        # corrompidos. Este lock serializa ambos (ver brief: "durante un
+        # fine-tuning, neo-model pausa la inferencia").
+        self.engine_lock = threading.Lock()
 
     def Decide(self, request, context):
-        return decide_mod.decide(self.engine, request)
+        with self.engine_lock:
+            return decide_mod.decide(self.engine, request)
 
     def StartFineTune(self, request, context):
-        return jobs_mod.start_fine_tune(request)
+        return jobs_mod.start_fine_tune(self.engine, self.engine_lock, request)
 
     def WatchJob(self, request, context):
         yield from jobs_mod.watch_job(request)

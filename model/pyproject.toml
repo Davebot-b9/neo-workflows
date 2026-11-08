@@ -17,9 +17,9 @@ dependencies = [
     "transformers==5.22.2",
     "accelerate==1.15.0",
     "safetensors==0.8.0",
+    # Fase 3: LoRA real sobre el mismo modelo (ver model/neo_model/train/lora.py).
+    "peft==0.21.2",
 ]
-
-# Fase 3: fine-tuning LoRA agrega peft aquí, una vez cerrada la Fase 2.
 
 [dependency-groups]
 dev = [

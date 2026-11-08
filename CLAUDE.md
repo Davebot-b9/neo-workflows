@@ -57,7 +57,7 @@ Verificadas contra fuentes reales (go.dev/dl, endoflife.date, crates.io, PyPI, n
 | buf | 1.75.0 | usado puntualmente vía `go install`, ver abajo |
 | Python | 3.12.9 (ya instalado en la máquina) | `model/.python-version` |
 
-Dependencias de cada servicio: ver `back/go.mod`, `vector/Cargo.toml`, `model/pyproject.toml`, `front/package.json`. De la Fase 1: `fastembed` 7.6.1, `usearch` 2.26.6, `rayon` 1.12.0 (crates.io, verificado). De la Fase 2: `torch` 2.15.0, `transformers` 5.22.2, `accelerate` 1.15.0 (PyPI, verificado); `qev` fijado al commit `31678bc` de github.com/OmniJev/OneJev (no hay versión en PyPI con ese nombre que sea la misma librería).
+Dependencias de cada servicio: ver `back/go.mod`, `vector/Cargo.toml`, `model/pyproject.toml`, `front/package.json`. De la Fase 1: `fastembed` 7.6.1, `usearch` 2.26.6, `rayon` 1.12.0 (crates.io, verificado). De la Fase 2: `torch` 2.15.0, `transformers` 5.22.2, `accelerate` 1.15.0 (PyPI, verificado); `qev` fijado al commit `31678bc` de github.com/OmniJev/OneJev (no hay versión en PyPI con ese nombre que sea la misma librería). De la Fase 3: `peft` 0.21.2 (PyPI, verificado).
 
 ## Generación de código desde los .proto
 
@@ -180,6 +180,67 @@ GPU en silencio). Necesita `--break-system-packages` en pip (PEP 668) y
   para una medida más realista de calibración.
 - Medir p95 de `Decide` bajo carga concurrente (como se hizo para
   `neo-vector` en la Fase 1) — no se hizo aquí.
+
+## Fase 3: fine-tuning LoRA real
+
+`neo-model` entrena LoRA de verdad sobre `OmniJev/OneJev-0.8B`, no simulado:
+`model/neo_model/train/lora.py` usa `peft` (r=8, `target_modules="all-linear"`)
+con el mismo renderizado de prompt que `qev` (`qev.prompt.render_question`/
+`build_messages`) para que el adaptador entrenado sea compatible con
+`DecisionEngine` en inferencia — la señal de entrenamiento es "predecir la
+letra correcta como siguiente token", justo lo que `DecisionEngine` lee de
+los logits de los slots (ver `qev/prompt.py`, `SLOT_LABELS`). No hizo falta
+el pipeline `train.sft` del propio `qev` (full fine-tune multi-GPU): es
+next-token prediction estándar, un LoRA con `peft` aplica directo.
+
+**Flujo real, de punta a punta**: `POST /api/jobs/finetune` → `StartFineTune`
+lanza el entrenamiento en un hilo de fondo (sostiene `engine_lock` mientras
+entrena, para pausar `Decide` — ver brief: "durante un fine-tuning, neo-model
+pausa la inferencia") → `WatchJob` transmite `step/loss/eta` reales por una
+cola por job → al terminar guarda el adaptador versionado en
+`/data/adapters/<job_id>` y libera el lock.
+
+**El caso sintético normal ya estaba al 100% de concordancia (ver Fase 2):
+sin margen para medir una mejora real.** Se agregó una variante "hard" al
+generador (`data/generate_documents.py --difficulty hard`): plantillas que
+evitan a propósito las palabras que delatan la categoría ("contrato",
+"factura", "reporte"), para que el modelo base no acierte siempre.
+
+**Medido de verdad, con el modelo cargado en GPU real** (reporte completo en
+`bench/fase3_calibracion.md`):
+- Antes del fine-tuning (modelo base, set `documents_hard_test.jsonl`, 300 docs): **concordancia 0.8767, ECE 0.2853**.
+- Después (LoRA entrenado en 1000 docs del mismo tipo "hard", 3 épocas): **concordancia 1.0000, ECE 0.0000**.
+- **Salvedad honesta**: el loss de entrenamiento cayó a ~0 en los primeros 12 pasos de 750 (`lr=1e-4` fue más alto de lo necesario) — el adaptador memorizó rápido las 3 plantillas por categoría, no necesariamente generalizó a frases genuinamente distintas. Train y test comparten las mismas plantillas (solo cambian nombres/montos/fechas). La mejora es real y medida, confirma que el pipeline funciona de punta a punta, pero no es evidencia de generalización robusta.
+
+**Un hallazgo real de incompatibilidad `peft` ↔ `qev`, no un bug nuestro**:
+`DecisionEngine._run_one` llama `self.model.model(...)` directo para sacar
+hidden states, asumiendo una clase concreta (`Qwen3_5ForCausalLM`). Si
+`self.model` queda como un `PeftModel` sin fusionar, esa misma llamada cae
+en el forward completo (logits, no hidden states) y truena con
+`AttributeError: 'CausalLMOutputWithPast' object has no attribute
+'last_hidden_state'`. El entrenamiento no se ve afectado (usa `forward()`
+estándar), pero para **evaluar con el adaptador puesto hay que fusionarlo**
+con `peft_model.merge_and_unload()` antes de usarlo con `DecisionEngine`
+(ver `model/neo_model/train/compare_calibration.py`). El job de
+entrenamiento (`lora.py`) usa `model.unload()` al terminar (sin fusionar) a
+propósito: no promueve el adaptador a producción solo por entrenarlo, el
+modelo en vivo vuelve a su estado base — "Go lo registra y el workflow
+puede apuntarle" es trabajo pendiente, ver Qué falta.
+
+**Pendiente, explícito**:
+- Go todavía no registra el `adapter_uri` que devuelve `WatchJob` ni hay
+  forma de que un workflow apunte a un adaptador entrenado — `neo-model`
+  siempre sirve el modelo base en `Decide`. Cerrar esto requiere decidir
+  cómo se referencia un adaptador desde `workflows/*.yaml` y sumarlo al
+  contrato (`.proto` primero).
+- El entrenamiento de prueba usó muchos más pasos de los necesarios (ver
+  salvedad arriba); valdría la pena un criterio de parada temprana.
+- No se probó reconectar `WatchJob` a un job ya en curso: `jobs.py` usa una
+  `queue.Queue` de un solo consumidor por job — un segundo `WatchJob` sobre
+  el mismo `job_id` después de que el primero se desconectó compite por los
+  mismos eventos en vez de reproducir desde donde se quedó (a diferencia del
+  backlog del Broker de Go en Fase 0). No se notó en el camino crítico, pero
+  quedó documentado para no sorprender a quien lo use después.
 
 ## Front: app completa con modo demo (nov 2026)
 
