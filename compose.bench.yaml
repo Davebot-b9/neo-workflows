@@ -8,14 +8,15 @@ name: neo-workflows
 # Uso: docker compose -f compose.yaml -f compose.bench.yaml up -d neo-vector neo-vector-exact
 services:
   neo-vector-exact:
-    build:
-      context: .
-      dockerfile: vector/Dockerfile
+    # Misma imagen que neo-vector (antes se construía aparte y se quedaba con
+    # código viejo, sin el pool de embedders).
+    image: neo-workflows-neo-vector
     restart: unless-stopped
     ports:
       - "50061:50051"
     environment:
       NEO_VECTOR_INDEX_IMPL: bruteforce
+      NEO_VECTOR_EMBED_POOL: ${NEO_VECTOR_EMBED_POOL:-4}
     volumes:
       - neo-vector-model-cache:/data
     healthcheck:

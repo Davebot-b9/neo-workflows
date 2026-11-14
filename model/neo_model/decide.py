@@ -67,7 +67,8 @@ def _from_qev_answer(answer: NoulAnswer | ChoiceAnswer | ScoreAnswer) -> model_p
     raise ValueError(f"tipo de respuesta desconocido: {type(answer)!r}")
 
 
-def decide(engine: DecisionEngine, request: model_pb2.DecideRequest) -> model_pb2.DecideResponse:
+def decide(engine: DecisionEngine, adapters, request: model_pb2.DecideRequest) -> model_pb2.DecideResponse:
+    adapters.use(request.adapter)
     questions = {name: _to_qev_question(q) for name, q in request.questions.items()}
     qev_request = SystemOneRequest(state=request.state, model=request.model, questions=questions)
 

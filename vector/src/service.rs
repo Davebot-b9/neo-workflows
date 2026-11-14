@@ -165,7 +165,11 @@ impl VectorService for VectorServiceImpl {
         async move {
             Ok(Response::new(HealthResponse {
                 ok: true,
-                detail: format!("fase-1, {} vectores indexados", self.index.len()),
+                detail: format!(
+                    "{} vectores indexados, pool de {} embedders",
+                    self.index.len(),
+                    self.embedder.size()
+                ),
             }))
         }
         .instrument(span)

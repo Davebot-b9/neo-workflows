@@ -163,3 +163,19 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
+
+func (s *Server) handleListAdapters(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	records, err := s.adapters.List(ctx)
+	if err != nil {
+		slog.Error("httpapi: listando adapters", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "no se pudo leer el registro de adaptadores")
+		return
+	}
+	if records == nil {
+		records = []ledger.AdapterRecord{}
+	}
+	writeJSON(w, http.StatusOK, records)
+}

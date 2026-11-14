@@ -1,5 +1,6 @@
 import type { Unsubscribe } from "../lib/createStore";
 import type {
+  Adapter,
   FineTuneRequest,
   Health,
   JobEvent,
@@ -29,6 +30,8 @@ export interface NeoGateway {
   subscribeJob(jobId: string, onEvent: (event: JobEvent) => void): Unsubscribe;
   /** Últimas filas de la bitácora `decisions` (GET /api/runs). */
   listRuns(limit?: number, signal?: AbortSignal): Promise<LedgerDecision[]>;
+  /** Adaptadores LoRA registrados por neo-api al terminar cada fine-tuning. */
+  listAdapters(signal?: AbortSignal): Promise<Adapter[]>;
 }
 
 export class ApiError extends Error {

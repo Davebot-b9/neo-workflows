@@ -6,6 +6,7 @@ import { ThresholdBar } from "../../components/charts/ThresholdBar";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Callout, EmptyState, Skeleton } from "../../components/ui/misc";
+import { shortId } from "../../lib/format";
 import { useWorkflows } from "./useWorkflows";
 
 export function WorkflowsPage() {
@@ -85,6 +86,11 @@ function WorkflowCard({ workflow, index }: { workflow: Workflow; index: number }
           <dd className="mt-1 truncate font-mono font-medium" title={workflow.model}>
             {workflow.model}
           </dd>
+          {workflow.adapter && (
+            <dd className="mt-0.5 truncate font-mono text-[11px] text-fg-muted" title={`Adaptador LoRA ${workflow.adapter}`}>
+              + LoRA {shortId(workflow.adapter)}
+            </dd>
+          )}
         </div>
         <div className="p-4">
           <dt className="flex items-center gap-1.5 text-fg-subtle">

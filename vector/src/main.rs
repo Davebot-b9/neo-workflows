@@ -29,8 +29,12 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "[::]:50051".to_string())
         .parse()?;
 
-    tracing::info!("cargando el modelo de embeddings (intfloat/multilingual-e5-small)...");
-    let embedder = Arc::new(Embedder::new()?);
+    let pool_size: usize = std::env::var("NEO_VECTOR_EMBED_POOL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4);
+    tracing::info!(pool_size, "cargando el modelo de embeddings (intfloat/multilingual-e5-small)...");
+    let embedder = Arc::new(Embedder::new(pool_size)?);
 
     let capacity: usize = std::env::var("NEO_VECTOR_CAPACITY")
         .ok()

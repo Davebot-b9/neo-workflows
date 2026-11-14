@@ -34,3 +34,35 @@ func TestValidateRejectsLatestModel(t *testing.T) {
 		t.Error("Validate debería rechazar model: \"latest\"")
 	}
 }
+
+func TestValidateAdapter(t *testing.T) {
+	base := func(provider, adapter string) *Workflow {
+		return &Workflow{
+			ID:        "x",
+			Provider:  provider,
+			Model:     "OmniJev/OneJev-0.8B@c02e305",
+			Adapter:   adapter,
+			Questions: map[string]Question{"a": {Type: "noul"}},
+			Cascade:   Cascade{Auto: 0.9, LLM: 0.6},
+		}
+	}
+
+	cases := []struct {
+		name     string
+		provider string
+		adapter  string
+		ok       bool
+	}{
+		{"sin adaptador", "local", "", true},
+		{"job_id válido", "local", "334a72fe-cef6-48f8-af3a-8402637081f5", true},
+		{"ruta relativa", "local", "../etc/passwd", false},
+		{"con barra", "local", "a/b", false},
+		{"con jev", "jev", "334a72fe-cef6-48f8-af3a-8402637081f5", false},
+	}
+	for _, c := range cases {
+		err := base(c.provider, c.adapter).Validate()
+		if (err == nil) != c.ok {
+			t.Errorf("%s: Validate() = %v, se esperaba ok=%v", c.name, err, c.ok)
+		}
+	}
+}

@@ -3,12 +3,14 @@ package main
 import (
 	"os"
 	"strconv"
+
+	"neo-api/internal/grpcconn"
 )
 
 type Config struct {
 	HTTPAddr     string
 	VectorAddr   string
-	ModelAddr    string
+	ModelAddrs   []string // NEO_MODEL_ADDR, una por réplica separadas por coma
 	DatabaseURL  string
 	WorkflowsDir string
 	JevBaseURL   string
@@ -20,7 +22,7 @@ func loadConfig() Config {
 	return Config{
 		HTTPAddr:     getenv("NEO_HTTP_ADDR", ":8080"),
 		VectorAddr:   getenv("NEO_VECTOR_ADDR", "localhost:50051"),
-		ModelAddr:    getenv("NEO_MODEL_ADDR", "localhost:50052"),
+		ModelAddrs:   grpcconn.SplitAddrs(getenv("NEO_MODEL_ADDR", "localhost:50052")),
 		DatabaseURL:  getenv("NEO_DATABASE_URL", "postgres://neo:neo@localhost:5432/neo?sslmode=disable"),
 		WorkflowsDir: getenv("NEO_WORKFLOWS_DIR", "../workflows"),
 		JevBaseURL:   getenv("JEV_BASE_URL", ""),

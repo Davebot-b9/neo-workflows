@@ -26,10 +26,13 @@ const (
 // librería de OneJev: ver CLAUDE.md) para que Jev y el modelo local
 // compartan contrato.
 type DecideRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Model         string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"` // versión fija, nunca "latest"
-	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
-	Questions     map[string]*Question   `protobuf:"bytes,3,rep,name=questions,proto3" json:"questions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Model     string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"` // versión fija, nunca "latest"
+	State     string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	Questions map[string]*Question   `protobuf:"bytes,3,rep,name=questions,proto3" json:"questions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Adaptador LoRA entrenado (el job_id de su fine-tuning), aplicado sobre
+	// model sin fusionarlo. Vacío = el modelo base. Solo [A-Za-z0-9_-].
+	Adapter       string `protobuf:"bytes,4,opt,name=adapter,proto3" json:"adapter,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -83,6 +86,13 @@ func (x *DecideRequest) GetQuestions() map[string]*Question {
 		return x.Questions
 	}
 	return nil
+}
+
+func (x *DecideRequest) GetAdapter() string {
+	if x != nil {
+		return x.Adapter
+	}
+	return ""
 }
 
 // La forma de criteria depende de type: "choice" usa choice_criteria (opción
@@ -856,6 +866,7 @@ type ModelHealthResponse struct {
 	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
 	GpuAvailable  bool                   `protobuf:"varint,2,opt,name=gpu_available,json=gpuAvailable,proto3" json:"gpu_available,omitempty"`
 	Detail        string                 `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	Training      bool                   `protobuf:"varint,4,opt,name=training,proto3" json:"training,omitempty"` // true mientras un fine-tuning tiene pausada la inferencia de esta réplica
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -911,15 +922,23 @@ func (x *ModelHealthResponse) GetDetail() string {
 	return ""
 }
 
+func (x *ModelHealthResponse) GetTraining() bool {
+	if x != nil {
+		return x.Training
+	}
+	return false
+}
+
 var File_neo_v1_model_proto protoreflect.FileDescriptor
 
 const file_neo_v1_model_proto_rawDesc = "" +
 	"\n" +
-	"\x12neo/v1/model.proto\x12\x06neo.v1\"\xcf\x01\n" +
+	"\x12neo/v1/model.proto\x12\x06neo.v1\"\xe9\x01\n" +
 	"\rDecideRequest\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12B\n" +
-	"\tquestions\x18\x03 \x03(\v2$.neo.v1.DecideRequest.QuestionsEntryR\tquestions\x1aN\n" +
+	"\tquestions\x18\x03 \x03(\v2$.neo.v1.DecideRequest.QuestionsEntryR\tquestions\x12\x18\n" +
+	"\aadapter\x18\x04 \x01(\tR\aadapter\x1aN\n" +
 	"\x0eQuestionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12&\n" +
 	"\x05value\x18\x02 \x01(\v2\x10.neo.v1.QuestionR\x05value:\x028\x01\"\xb3\x02\n" +
@@ -998,11 +1017,12 @@ const file_neo_v1_model_proto_rawDesc = "" +
 	"\vadapter_uri\x18\a \x01(\tR\n" +
 	"adapterUri\x12\x14\n" +
 	"\x05error\x18\b \x01(\tR\x05error\"\x14\n" +
-	"\x12ModelHealthRequest\"b\n" +
+	"\x12ModelHealthRequest\"~\n" +
 	"\x13ModelHealthResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12#\n" +
 	"\rgpu_available\x18\x02 \x01(\bR\fgpuAvailable\x12\x16\n" +
-	"\x06detail\x18\x03 \x01(\tR\x06detail2\xf1\x01\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\x12\x1a\n" +
+	"\btraining\x18\x04 \x01(\bR\btraining2\xf1\x01\n" +
 	"\fModelService\x127\n" +
 	"\x06Decide\x12\x15.neo.v1.DecideRequest\x1a\x16.neo.v1.DecideResponse\x125\n" +
 	"\rStartFineTune\x12\x17.neo.v1.FineTuneRequest\x1a\v.neo.v1.Job\x12.\n" +

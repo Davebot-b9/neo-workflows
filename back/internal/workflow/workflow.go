@@ -7,10 +7,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"text/template"
 
 	"gopkg.in/yaml.v3"
 )
+
+// adapterID es el job_id de un fine-tuning, nunca una ruta: neo-model lo
+// une a /data/adapters, así que no puede traer "/" ni "..". Mismo patrón que
+// valida model/neo_model/adapters.py.
+var adapterID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
 // Question sigue la forma real del API System One (verificada contra el
 // código de qev, la librería de OneJev: ver CLAUDE.md). Qué campos importan
@@ -40,6 +46,7 @@ type Workflow struct {
 	Version       int                 `yaml:"version" json:"version"`
 	Provider      string              `yaml:"provider" json:"provider"`
 	Model         string              `yaml:"model" json:"model"`
+	Adapter       string              `yaml:"adapter,omitempty" json:"adapter,omitempty"` // job_id de un LoRA entrenado; vacío = modelo base
 	Search        Search              `yaml:"search" json:"search"`
 	StateTemplate string              `yaml:"state_template" json:"-"`
 	Questions     map[string]Question `yaml:"questions" json:"questions"`
@@ -48,8 +55,8 @@ type Workflow struct {
 
 // StateVars son los datos disponibles dentro de state_template.
 type StateVars struct {
-	Text        string
-	Precedents  string
+	Text       string
+	Precedents string
 }
 
 func (w *Workflow) RenderState(vars StateVars) (string, error) {
@@ -73,6 +80,14 @@ func (w *Workflow) Validate() error {
 	}
 	if w.Model == "" || w.Model == "latest" {
 		return fmt.Errorf("workflow %q: model debe ser una versión fija, nunca vacío ni \"latest\"", w.ID)
+	}
+	if w.Adapter != "" {
+		if w.Provider != "local" {
+			return fmt.Errorf("workflow %q: adapter solo aplica con provider \"local\" (Jev no sirve adaptadores propios)", w.ID)
+		}
+		if !adapterID.MatchString(w.Adapter) {
+			return fmt.Errorf("workflow %q: adapter %q inválido, debe ser el job_id de un fine-tuning", w.ID, w.Adapter)
+		}
 	}
 	if len(w.Questions) == 0 {
 		return fmt.Errorf("workflow %q: necesita al menos una pregunta", w.ID)

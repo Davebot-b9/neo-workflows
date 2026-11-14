@@ -1,0 +1,28 @@
+name: neo-workflows
+
+# Overlay opt-in para medir concurrencia. En una RTX 4060 de 8 GB no se usa
+# durante fine-tuning: dos modelos cargados dejan al LoRA sin VRAM suficiente.
+services:
+  neo-model-2:
+    extends:
+      file: compose.yaml
+      service: neo-model
+    environment:
+      # Este overlay se usa con compose.gpu.yaml por defecto. Para una
+      # prueba CPU explícita: NEO_MODEL_DEVICE=cpu.
+      NEO_MODEL_DEVICE: ${NEO_MODEL_DEVICE:-cuda}
+    ports: []
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  neo-api:
+    environment:
+      NEO_MODEL_ADDR: "neo-model:50052,neo-model-2:50052"
+    depends_on:
+      neo-model-2:
+        condition: service_healthy

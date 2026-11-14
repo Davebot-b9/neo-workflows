@@ -21,6 +21,8 @@ export interface Workflow {
   version: number;
   provider: "local" | "jev" | (string & {});
   model: string;
+  /** job_id de un adaptador LoRA entrenado (solo provider local); ausente = modelo base. */
+  adapter?: string;
   search: { top_k: number };
   questions: Record<string, Question>;
   cascade: { auto: number; llm: number };
@@ -109,6 +111,17 @@ export type JobEvent =
 export const JOB_EVENT_TYPES = ["job.progress", "job.done", "job.error"] as const;
 export const JOB_TERMINAL_EVENTS = ["job.done", "job.error"] as const;
 
+/** Un adaptador LoRA que dejó un fine-tuning (GET /api/adapters). Su `id` es lo
+ *  que un workflow pone en `adapter:` (ver workflows/*.yaml). */
+export interface Adapter {
+  id: string;
+  base_model: string;
+  dataset_uri: string;
+  hyperparameters: Record<string, string>;
+  adapter_uri: string;
+  created_at: string;
+}
+
 // ── Bitácora (GET /api/runs) ─────────────────────────────────────────
 
 /** Una fila de la tabla append-only `decisions`. */
@@ -118,6 +131,8 @@ export interface LedgerDecision {
   workflow_version: number;
   provider: string;
   model: string;
+  /** Adaptador LoRA que usó la decisión; ausente = modelo base. */
+  adapter?: string;
   input_text: string;
   answers: Record<string, AnswerPayload>;
   confidence: number;

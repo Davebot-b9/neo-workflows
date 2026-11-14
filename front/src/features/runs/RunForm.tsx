@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/Button";
 import { Field, Select, Textarea } from "../../components/ui/Field";
 import { Kbd, Skeleton } from "../../components/ui/misc";
 import { Panel } from "../../components/ui/Panel";
+import { shortId } from "../../lib/format";
 import { SAMPLES } from "./samples";
 
 const MAX_CHARS = 8000;
@@ -96,7 +97,15 @@ export function RunForm({
             <div className="flex items-center gap-2 rounded-lg border border-line bg-surface-2/50 px-2.5 py-2">
               <Cpu className="size-3.5 shrink-0 text-fg-subtle" aria-hidden />
               <dt className="sr-only">Proveedor</dt>
-              <dd>{workflow.provider === "jev" ? "Jev (System One)" : "Modelo local"}</dd>
+              <dd className="truncate" title={workflow.adapter ? `Adaptador LoRA ${workflow.adapter}` : undefined}>
+                {workflow.provider === "jev" ? "Jev (System One)" : workflow.adapter ? (
+                  <>
+                    Local + LoRA <span className="font-mono">{shortId(workflow.adapter)}</span>
+                  </>
+                ) : (
+                  "Modelo local"
+                )}
+              </dd>
             </div>
             <div className="flex items-center gap-2 rounded-lg border border-line bg-surface-2/50 px-2.5 py-2">
               <Layers className="size-3.5 shrink-0 text-fg-subtle" aria-hidden />

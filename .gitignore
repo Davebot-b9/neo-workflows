@@ -18,13 +18,21 @@ model/.pytest_cache/
 **/adapters/
 
 # Node / front
+node_modules/
 front/node_modules/
 front/dist/
 front/.vite/
 
+# Documentación/diagramas generados localmente
+docs_build/node_modules/
+.archify/
+
 # Datos y benchmarks generados localmente
 data/generated/
 bench/results/
+
+# Salidas locales de pruebas de escala
+bench/*.json
 
 # Editor / SO
 .vscode/*

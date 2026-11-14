@@ -16,10 +16,10 @@ import (
 
 var constructors = map[string]func(provider.Config) (provider.Provider, error){
 	"local": func(cfg provider.Config) (provider.Provider, error) {
-		if cfg.LocalAddr == "" {
+		if len(cfg.LocalAddrs) == 0 {
 			return nil, fmt.Errorf("provider local: falta NEO_MODEL_ADDR")
 		}
-		return local.New(cfg.LocalAddr), nil
+		return local.New(cfg.LocalAddrs), nil
 	},
 	"jev": func(cfg provider.Config) (provider.Provider, error) {
 		if cfg.JevAPIKey == "" {

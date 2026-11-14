@@ -1,6 +1,6 @@
 import { overallConfidence, routeFor } from "../../domain/cascade";
 import { ApiError, type NeoGateway } from "../gateway";
-import type { AnswerPayload, FineTuneRequest, JobEvent, RunEvent, Workflow } from "../types";
+import type { Adapter, AnswerPayload, FineTuneRequest, JobEvent, RunEvent, Workflow } from "../types";
 import { DEMO_DEPS, DEMO_WORKFLOWS } from "./fixtures";
 import { seededRandom, simulateAnswer } from "./simulate";
 import { Topic } from "./topic";
@@ -38,6 +38,7 @@ export function createMockGateway(options: MockOptions = {}): NeoGateway {
   const schedule: Schedule = options.schedule ?? ((fn, ms) => void setTimeout(fn, ms));
   const runs = new Map<string, Topic<RunEvent>>();
   const jobs = new Map<string, Topic<JobEvent>>();
+  const adapters: Adapter[] = [];
 
   async function simulateRun(runId: string, wf: Workflow, text: string, topic: Topic<RunEvent>) {
     const rand = seededRandom(`${wf.id}:${text}`);
@@ -93,8 +94,18 @@ export function createMockGateway(options: MockOptions = {}): NeoGateway {
           data: { step, max_steps: maxSteps, loss: Math.round(loss * 1e4) / 1e4, eta: formatEta(((maxSteps - step) * tick) / 1000) },
         });
       }
-      const slug = request.base_model.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-      emit({ type: "job.done", data: { job_id: jobId, adapter_uri: `file:///adapters/${slug}/${jobId}` } });
+      // Igual que neo-model: el adaptador queda en /data/adapters/<job_id> y
+      // neo-api lo registra; aquí se registra en la lista de la sesión demo.
+      const adapterUri = `/data/adapters/${jobId}`;
+      adapters.unshift({
+        id: jobId,
+        base_model: request.base_model,
+        dataset_uri: request.dataset_uri,
+        hyperparameters: request.hyperparameters,
+        adapter_uri: adapterUri,
+        created_at: new Date().toISOString(),
+      });
+      emit({ type: "job.done", data: { job_id: jobId, adapter_uri: adapterUri } });
     } finally {
       topic.close();
     }
@@ -164,6 +175,11 @@ export function createMockGateway(options: MockOptions = {}): NeoGateway {
     // En demo no hay PostgreSQL: el historial vive solo en el navegador.
     async listRuns() {
       return [];
+    },
+
+    async listAdapters() {
+      await wait(schedule, 60 * speed);
+      return [...adapters];
     },
   };
 }

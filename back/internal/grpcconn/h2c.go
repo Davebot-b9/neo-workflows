@@ -8,14 +8,17 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
-	"time"
 
 	"golang.org/x/net/http2"
 )
 
 func NewH2CClient() *http.Client {
 	return &http.Client{
-		Timeout: 30 * time.Second,
+		// No timeout global: WatchJob y WatchRun son streams que pueden durar
+		// minutos. Cada llamada unary ya recibe su propio context.WithTimeout
+		// en la capa que conoce el contrato; un http.Client.Timeout global
+		// cancelaría cualquier fine-tuning después de 30 s.
+		Timeout: 0,
 		Transport: &http2.Transport{
 			AllowHTTP: true,
 			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {

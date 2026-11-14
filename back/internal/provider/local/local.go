@@ -1,9 +1,10 @@
 // Package local es el Adapter: traduce entre provider.Provider y el gRPC de
-// neo-model (Python).
+// neo-model (Python), repartiendo entre sus réplicas.
 package local
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -16,23 +17,51 @@ import (
 )
 
 type Adapter struct {
-	client neov1connect.ModelServiceClient
+	replicas *grpcconn.Ring[neov1connect.ModelServiceClient]
 }
 
-func New(addr string) *Adapter {
+func New(addrs []string) *Adapter {
 	httpClient := grpcconn.NewH2CClient()
 	interceptor, err := otelconnect.NewInterceptor()
 	if err != nil {
 		panic(fmt.Errorf("provider/local: armando el interceptor de otel: %w", err))
 	}
-	client := neov1connect.NewModelServiceClient(
-		httpClient, grpcconn.BaseURL(addr),
-		connect.WithGRPC(), connect.WithInterceptors(interceptor),
-	)
-	return &Adapter{client: client}
+	clients := make([]neov1connect.ModelServiceClient, 0, len(addrs))
+	for _, addr := range addrs {
+		clients = append(clients, neov1connect.NewModelServiceClient(
+			httpClient, grpcconn.BaseURL(addr),
+			connect.WithGRPC(), connect.WithInterceptors(interceptor),
+		))
+	}
+	return newWithClients(clients)
 }
 
+func newWithClients(clients []neov1connect.ModelServiceClient) *Adapter {
+	return &Adapter{replicas: grpcconn.NewRing(clients)}
+}
+
+// Decide va a la réplica que toca; si responde Unavailable (entrenando un
+// fine-tuning, ocupada o caída) prueba la siguiente en el mismo intento, sin
+// gastar un reintento del Decorator ni abrir el breaker por una réplica sola.
 func (a *Adapter) Decide(ctx context.Context, req provider.Request) (provider.Response, error) {
+	var lastErr error
+	for _, client := range a.replicas.Order() {
+		resp, err := a.decideOn(ctx, client, req)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if connect.CodeOf(err) != connect.CodeUnavailable || ctx.Err() != nil {
+			return provider.Response{}, err
+		}
+	}
+	if lastErr == nil {
+		lastErr = errors.New("neo-model: no hay réplicas configuradas")
+	}
+	return provider.Response{}, lastErr
+}
+
+func (a *Adapter) decideOn(ctx context.Context, client neov1connect.ModelServiceClient, req provider.Request) (provider.Response, error) {
 	questions := make(map[string]*neov1.Question, len(req.Questions))
 	for name, q := range req.Questions {
 		questions[name] = &neov1.Question{
@@ -45,8 +74,9 @@ func (a *Adapter) Decide(ctx context.Context, req provider.Request) (provider.Re
 		}
 	}
 
-	resp, err := a.client.Decide(ctx, connect.NewRequest(&neov1.DecideRequest{
+	resp, err := client.Decide(ctx, connect.NewRequest(&neov1.DecideRequest{
 		Model:     req.Model,
+		Adapter:   req.Adapter,
 		State:     req.State,
 		Questions: questions,
 	}))

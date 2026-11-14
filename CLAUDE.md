@@ -261,6 +261,11 @@ Workflows, Fine-tuning) con Tailwind v4 (`@tailwindcss/vite`, tokens en
 - Para probar con texto acentuado, no uses `curl -d` desde Git Bash en Windows: corrompe el UTF-8 en la línea de comandos antes de enviarlo (verificado: el mismo body desde Linux o el navegador llega bien). Usa `--data-binary @archivo.json` o prueba desde un contenedor.
 - **Operar el stack sin interrumpir a otros**: siempre con los dos archivos (`-f compose.yaml -f compose.gpu.yaml`, así se levantó) y `up -d --no-deps <servicio>` para recrear solo lo que cambió. Construir (`compose build`) no toca contenedores en ejecución.
 
+## OperaciÃ³n segura tras la Fase 4 (nov 2026)
+
+- La base (`compose.yaml` + `compose.gpu.yaml`) mantiene una sola rÃ©plica de `neo-model`, suficiente para inferencia y fine-tuning en la RTX 4060 de 8 GB. `compose.scale.yaml` es opt-in para medir concurrencia; no debe activarse durante LoRA porque dos rÃ©plicas dejan la GPU sin memoria.
+- `back/internal/grpcconn/h2c.go` no fija un timeout global al cliente HTTP/2: cada RPC conserva su contexto. AsÃ­ `WatchJob` puede transmitir entrenamientos de mÃ¡s de 30 s sin cortar el stream.
+
 ## Fase 4: trazas distribuidas y carga real (nov 2026)
 
 Instrumentación completa con OpenTelemetry en los 4 lenguajes, exportando por

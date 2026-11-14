@@ -1,6 +1,7 @@
 import { ApiError, type NeoGateway } from "./gateway";
 import { subscribeSSE } from "./sse";
 import {
+  type Adapter,
   isHealth,
   JOB_EVENT_TYPES,
   JOB_TERMINAL_EVENTS,
@@ -92,5 +93,7 @@ export function createHttpGateway(): NeoGateway {
       }),
 
     listRuns: (limit = 100, signal) => request<LedgerDecision[]>(`/api/runs?limit=${limit}`, { signal }),
+
+    listAdapters: (signal) => request<Adapter[]>("/api/adapters", { signal }),
   };
 }

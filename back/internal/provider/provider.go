@@ -19,6 +19,7 @@ type Question struct {
 
 type Request struct {
 	Model     string
+	Adapter   string // solo el proveedor local; workflow.Validate impide mandarlo a Jev
 	State     string
 	Questions map[string]Question
 }

@@ -94,11 +94,16 @@ func run() error {
 	}
 	defer pool.Close()
 
+	if err := ledger.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("aplicando migraciones: %w", err)
+	}
+
 	vector := vectorclient.New(cfg.VectorAddr)
-	model := modelclient.New(cfg.ModelAddr)
+	model := modelclient.New(cfg.ModelAddrs)
+	slog.Info("réplicas de neo-model", "addrs", cfg.ModelAddrs)
 
 	providers, err := providerfactory.Available(provider.Config{
-		LocalAddr:  cfg.ModelAddr,
+		LocalAddrs: cfg.ModelAddrs,
 		JevBaseURL: cfg.JevBaseURL,
 		JevAPIKey:  cfg.JevAPIKey,
 		Retries:    2,
@@ -115,7 +120,8 @@ func run() error {
 	go ledgerWriter.Run(ctx)
 
 	runsSvc := runs.NewDecisionService(workflows, vector, providers, broker, ledgerWriter)
-	jobsSvc := jobs.NewJobService(model, broker)
+	adapters := ledger.NewAdapters(pool)
+	jobsSvc := jobs.NewJobService(model, broker, adapters)
 
 	// postgres es crítico (503 si falla, lo usa el healthcheck de Docker);
 	// neo-vector y neo-model se reportan pero no tumban a neo-api.
@@ -125,7 +131,7 @@ func run() error {
 		{Name: "neo-model", Fn: model.Health},
 	}
 
-	server := httpapi.NewServer(runsSvc, jobsSvc, workflows, ledger.NewReader(pool), checks)
+	server := httpapi.NewServer(runsSvc, jobsSvc, workflows, ledger.NewReader(pool), adapters, checks)
 
 	// otelhttp extrae el traceparent que manda el navegador (W3C Trace
 	// Context) y abre el span raíz de cada request; de ahí para adentro,

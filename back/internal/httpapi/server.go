@@ -28,22 +28,30 @@ type DecisionLister interface {
 	Recent(ctx context.Context, limit int) ([]ledger.Record, error)
 }
 
+// AdapterLister lee el registro de adaptadores LoRA para GET /api/adapters
+// (ledger.Adapters en producción).
+type AdapterLister interface {
+	List(ctx context.Context) ([]ledger.AdapterRecord, error)
+}
+
 type Server struct {
 	mux       *http.ServeMux
 	runs      *runs.DecisionService
 	jobs      *jobs.JobService
 	workflows *workflow.Store
 	decisions DecisionLister
+	adapters  AdapterLister
 	checks    []HealthCheck
 }
 
-func NewServer(runsSvc *runs.DecisionService, jobsSvc *jobs.JobService, workflows *workflow.Store, decisions DecisionLister, checks []HealthCheck) *Server {
+func NewServer(runsSvc *runs.DecisionService, jobsSvc *jobs.JobService, workflows *workflow.Store, decisions DecisionLister, adapters AdapterLister, checks []HealthCheck) *Server {
 	s := &Server{
 		mux:       http.NewServeMux(),
 		runs:      runsSvc,
 		jobs:      jobsSvc,
 		workflows: workflows,
 		decisions: decisions,
+		adapters:  adapters,
 		checks:    checks,
 	}
 	s.routes()
@@ -60,6 +68,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("POST /api/jobs/finetune", s.handleStartFineTune)
 	s.mux.HandleFunc("GET /api/jobs/{id}/events", s.handleJobEvents)
+	s.mux.HandleFunc("GET /api/adapters", s.handleListAdapters)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

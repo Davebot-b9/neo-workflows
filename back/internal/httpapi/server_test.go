@@ -22,6 +22,15 @@ func (f *fakeLister) Recent(_ context.Context, limit int) ([]ledger.Record, erro
 	return f.records, f.err
 }
 
+type fakeAdapters struct {
+	records []ledger.AdapterRecord
+	err     error
+}
+
+func (f *fakeAdapters) List(context.Context) ([]ledger.AdapterRecord, error) {
+	return f.records, f.err
+}
+
 func ok(context.Context) error   { return nil }
 func fail(context.Context) error { return errors.New("caído") }
 
@@ -35,7 +44,7 @@ func get(t *testing.T, s *Server, path string) (*httptest.ResponseRecorder, map[
 }
 
 func TestHealthzNonCriticalFailureKeeps200(t *testing.T) {
-	s := NewServer(nil, nil, nil, &fakeLister{}, []HealthCheck{
+	s := NewServer(nil, nil, nil, &fakeLister{}, &fakeAdapters{}, []HealthCheck{
 		{Name: "postgres", Critical: true, Fn: ok},
 		{Name: "neo-model", Fn: fail},
 	})
@@ -54,7 +63,7 @@ func TestHealthzNonCriticalFailureKeeps200(t *testing.T) {
 }
 
 func TestHealthzCriticalFailureIs503(t *testing.T) {
-	s := NewServer(nil, nil, nil, &fakeLister{}, []HealthCheck{
+	s := NewServer(nil, nil, nil, &fakeLister{}, &fakeAdapters{}, []HealthCheck{
 		{Name: "postgres", Critical: true, Fn: fail},
 		{Name: "neo-vector", Fn: ok},
 	})
@@ -77,7 +86,7 @@ func TestListRunsLimit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		lister := &fakeLister{}
-		s := NewServer(nil, nil, nil, lister, nil)
+		s := NewServer(nil, nil, nil, lister, &fakeAdapters{}, nil)
 		rec := httptest.NewRecorder()
 		s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/runs"+tc.query, nil))
 		if rec.Code != tc.wantCode {
@@ -90,7 +99,7 @@ func TestListRunsLimit(t *testing.T) {
 }
 
 func TestListRunsEmptyIsArrayNotNull(t *testing.T) {
-	s := NewServer(nil, nil, nil, &fakeLister{}, nil)
+	s := NewServer(nil, nil, nil, &fakeLister{}, &fakeAdapters{}, nil)
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/runs", nil))
 	if got := rec.Body.String(); got != "[]\n" {
@@ -99,9 +108,40 @@ func TestListRunsEmptyIsArrayNotNull(t *testing.T) {
 }
 
 func TestListRunsLedgerErrorIs503(t *testing.T) {
-	s := NewServer(nil, nil, nil, &fakeLister{err: errors.New("db")}, nil)
+	s := NewServer(nil, nil, nil, &fakeLister{err: errors.New("db")}, &fakeAdapters{}, nil)
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/runs", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, quería 503", rec.Code)
+	}
+}
+
+func TestListAdapters(t *testing.T) {
+	s := NewServer(nil, nil, nil, &fakeLister{}, &fakeAdapters{records: []ledger.AdapterRecord{
+		{ID: "334a72fe", BaseModel: "OmniJev/OneJev-0.8B", AdapterURI: "/data/adapters/334a72fe"},
+	}}, nil)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/adapters", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var got []ledger.AdapterRecord
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got) != 1 || got[0].ID != "334a72fe" {
+		t.Fatalf("body = %s (err %v)", rec.Body.String(), err)
+	}
+}
+
+func TestListAdaptersEmptyIsArrayAndErrorIs503(t *testing.T) {
+	rec := httptest.NewRecorder()
+	NewServer(nil, nil, nil, &fakeLister{}, &fakeAdapters{}, nil).
+		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/adapters", nil))
+	if got := rec.Body.String(); got != "[]\n" {
+		t.Fatalf("body = %q, quería []", got)
+	}
+
+	rec = httptest.NewRecorder()
+	NewServer(nil, nil, nil, &fakeLister{}, &fakeAdapters{err: errors.New("db")}, nil).
+		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/adapters", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, quería 503", rec.Code)
 	}

@@ -1,5 +1,5 @@
-import { Activity, CircleAlert, CircleCheck, FlaskConical, Gauge, Hourglass, Rocket, RotateCcw, TrendingDown } from "lucide-react";
-import { useState } from "react";
+import { Activity, CircleAlert, CircleCheck, FlaskConical, Gauge, Hourglass, Layers, Rocket, RotateCcw, TrendingDown } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import type { FineTuneRequest } from "../../api/types";
 import { useGateway } from "../../app/gateway/gatewayContext";
@@ -10,17 +10,20 @@ import { Field, Input } from "../../components/ui/Field";
 import { Callout, CopyButton, EmptyState, StatTile } from "../../components/ui/misc";
 import { Panel } from "../../components/ui/Panel";
 import { useNow } from "../../hooks/useNow";
-import { duration, shortId } from "../../lib/format";
+import { duration, relativeTime, shortId } from "../../lib/format";
 import { useWorkflows } from "../workflows/useWorkflows";
 import { HyperparamsEditor, type ParamRow } from "./HyperparamsEditor";
 import { bestLoss, type JobState } from "./jobReducer";
+import { useAdapters } from "./useAdapters";
 import { useFineTune } from "./useFineTune";
 
+// Las mismas llaves que lee neo-model (model/neo_model/jobs.py); cualquier
+// otra se ignora allá. Valores = los defaults de neo-model.
 const DEFAULT_PARAMS: ParamRow[] = [
-  { id: 1, key: "learning_rate", value: "2e-4" },
-  { id: 2, key: "epochs", value: "3" },
-  { id: 3, key: "max_steps", value: "120" },
-  { id: 4, key: "lora_rank", value: "16" },
+  { id: 1, key: "epochs", value: "3" },
+  { id: 2, key: "batch_size", value: "4" },
+  { id: 3, key: "lr", value: "1e-4" },
+  { id: 4, key: "lora_r", value: "8" },
 ];
 
 function validate(baseModel: string, datasetUri: string): { baseModel?: string; datasetUri?: string } {
@@ -79,7 +82,11 @@ export function FineTunePage() {
               />
             )}
           </Field>
-          <Field label="Dataset" hint="URI que neo-model pueda leer (JSONL sintético)." error={touched ? errors.datasetUri : null}>
+          <Field
+            label="Dataset"
+            hint="Un .jsonl de data/generated/ (neo-model lo lee en /datasets; solo cuenta el nombre del archivo)."
+            error={touched ? errors.datasetUri : null}
+          >
             {({ id, describedBy, invalid }) => (
               <Input
                 id={id}
@@ -87,7 +94,7 @@ export function FineTunePage() {
                 aria-invalid={invalid || undefined}
                 value={datasetUri}
                 onChange={(e) => setDatasetUri(e.target.value)}
-                placeholder="file:///data/sintetico/train.jsonl"
+                placeholder="documents_hard_train.jsonl"
                 className="font-mono text-xs"
                 disabled={busy}
               />
@@ -107,8 +114,82 @@ export function FineTunePage() {
         </form>
       </Panel>
 
-      <JobMonitor state={state} />
+      <div className="flex min-w-0 flex-col gap-6">
+        <JobMonitor state={state} />
+        <AdaptersPanel justFinished={state.phase === "done" ? state.jobId : null} />
+      </div>
     </div>
+  );
+}
+
+function AdaptersPanel({ justFinished }: { justFinished: string | null | undefined }) {
+  const { adapters, loading, error, reload } = useAdapters();
+  const { workflows } = useWorkflows();
+
+  // neo-api registra el adaptador al recibir job.done: se recarga en ese momento.
+  useEffect(() => {
+    if (justFinished) reload();
+  }, [justFinished, reload]);
+
+  return (
+    <Panel
+      title="Adaptadores entrenados"
+      description={
+        <>
+          Para usar uno, ponlo en <span className="font-mono">adapter:</span> de un workflow (workflows/*.yaml) y reinicia neo-api.
+        </>
+      }
+    >
+      {error ? (
+        <Callout tone="critical" icon={CircleAlert} title="No se pudo leer el registro">
+          <span className="font-mono text-xs">{error}</span>
+        </Callout>
+      ) : adapters.length === 0 ? (
+        <EmptyState
+          icon={Layers}
+          title={loading ? "Cargando…" : "Todavía no hay adaptadores"}
+          description="Cada fine-tuning terminado deja uno aquí, con su modelo base, dataset e hiperparámetros."
+        />
+      ) : (
+        <ul className="flex flex-col divide-y divide-line">
+          {adapters.map((a) => {
+            const usedBy = workflows.filter((w) => w.adapter === a.id);
+            return (
+              <li key={a.id} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="flex items-center rounded-md border border-line bg-surface-2/60 pl-2 font-mono text-xs">
+                    {shortId(a.id)}
+                    <CopyButton value={`adapter: "${a.id}"`} label="Copiar línea para el workflow" className="size-6" />
+                  </span>
+                  <span className="text-xs text-fg-subtle">{relativeTime(Date.parse(a.created_at))}</span>
+                  {usedBy.map((w) => (
+                    <Badge key={w.id} tone="good" mono>
+                      {w.id}
+                    </Badge>
+                  ))}
+                </div>
+                <dl className="grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <dt className="text-fg-subtle">Modelo base · dataset</dt>
+                    <dd className="truncate font-mono" title={`${a.base_model} · ${a.dataset_uri}`}>
+                      {a.base_model} · {a.dataset_uri}
+                    </dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="text-fg-subtle">Hiperparámetros</dt>
+                    <dd className="truncate font-mono">
+                      {Object.entries(a.hyperparameters)
+                        .map(([k, v]) => `${k}=${v}`)
+                        .join(" · ") || "por defecto"}
+                    </dd>
+                  </div>
+                </dl>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
   );
 }
 
@@ -190,11 +271,15 @@ function JobMonitor({ state }: { state: JobState }) {
         </Callout>
       )}
 
-      {state.phase === "done" && state.adapterUri && (
-        <Callout tone="good" icon={CircleCheck} title="Adaptador listo">
-          <span className="flex items-center gap-1 font-mono text-xs break-all">
-            {state.adapterUri}
-            <CopyButton value={state.adapterUri} label="Copiar adapter_uri" />
+      {state.phase === "done" && state.adapterUri && state.jobId && (
+        <Callout tone="good" icon={CircleCheck} title="Adaptador listo y registrado">
+          <span className="flex flex-col gap-1 text-xs">
+            <span>Para usarlo, agrega esta línea a un workflow y reinicia neo-api:</span>
+            <span className="flex items-center gap-1 font-mono break-all">
+              adapter: &quot;{state.jobId}&quot;
+              <CopyButton value={`adapter: "${state.jobId}"`} label="Copiar línea para el workflow" />
+            </span>
+            <span className="font-mono text-fg-subtle break-all">{state.adapterUri}</span>
           </span>
         </Callout>
       )}

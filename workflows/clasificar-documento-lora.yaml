@@ -1,0 +1,29 @@
+# Mismo workflow que clasificar-documento, pero sobre el adaptador LoRA que
+# entrenó la Fase 3 (1000 documentos "hard", 3 épocas; ver
+# bench/fase3_calibracion.md). `adapter` es el job_id de ese fine-tuning: el
+# adaptador vive en el volumen de neo-model (/data/adapters/<job_id>) y se
+# aplica sin fusionar sobre el mismo modelo base fijado en `model`.
+id: clasificar-documento-lora
+version: 1
+provider: local # un adapter solo aplica con el modelo local
+model: "OmniJev/OneJev-0.8B@c02e305" # versión fija del modelo base. Nunca "latest".
+adapter: "334a72fe-cef6-48f8-af3a-8402637081f5"
+search:
+  top_k: 5
+state_template: |
+  Documento: {{ .Text }}
+  Precedentes: {{ .Precedents }}
+questions:
+  categoria:
+    type: choice
+    instructions: ¿A qué categoría pertenece el documento?
+    criteria:
+      contrato: Acuerdos entre partes
+      factura: Cobros y pagos
+      reporte: Informes y resultados
+  urgente:
+    type: noul
+    instructions: ¿El documento requiere atención inmediata?
+cascade:
+  auto: 0.90
+  llm: 0.60

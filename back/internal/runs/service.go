@@ -141,7 +141,7 @@ func (s *DecisionService) stageDecide(ctx context.Context, runID string, wf *wor
 		}
 	}
 
-	resp, err := p.Decide(ctx, provider.Request{Model: wf.Model, State: state, Questions: questions})
+	resp, err := p.Decide(ctx, provider.Request{Model: wf.Model, Adapter: wf.Adapter, State: state, Questions: questions})
 	elapsed := time.Since(start)
 	if err != nil {
 		s.publishStage(runID, "decidir", "error", elapsed.Milliseconds())
@@ -178,6 +178,7 @@ func (s *DecisionService) stageCascade(runID string, wf *workflow.Workflow, text
 		WorkflowVersion: wf.Version,
 		Provider:        policy.SelectProvider(wf),
 		Model:           resp.Model,
+		Adapter:         wf.Adapter,
 		InputText:       text,
 		Answers:         answersJSON,
 		Confidence:      confidence,

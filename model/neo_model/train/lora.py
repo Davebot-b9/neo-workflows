@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig
 from qev.prompt import SLOT_LABELS, build_messages, render_question
 from qev.schema import ChoiceQuestion
 
@@ -78,6 +78,7 @@ def _collate(batch: list[tuple[list[int], list[int]]], pad_id: int):
 
 def run_lora_job(
     engine,
+    adapters,
     dataset_path: Path,
     adapters_dir: Path,
     job_id: str,
@@ -87,11 +88,12 @@ def run_lora_job(
     lora_r: int = 8,
     on_progress: Callable[[ProgressEvent], None] | None = None,
 ) -> Path:
-    """Llamar solo con engine_lock tomado: muta engine.model in-place
-    (pega el adaptador LoRA) y lo pone en train(); correr un Decide() al
-    mismo tiempo daría resultados corrompidos (dropout activo, pesos
-    cambiando a medio forward). Ver brief: "durante un fine-tuning,
-    neo-model pausa la inferencia"."""
+    """Llamar solo con engine_lock tomado: agrega un adaptador LoRA al
+    modelo compartido y lo pone en train(); correr un Decide() al mismo
+    tiempo daría resultados corrompidos (dropout activo, pesos cambiando a
+    medio forward). Ver brief: "durante un fine-tuning, neo-model pausa la
+    inferencia". Al terminar el adaptador queda cargado y servible con su
+    job_id como nombre (ver adapters.py)."""
     tokenizer = engine.tokenizer
     pad_id = engine.pad_id
 
@@ -102,8 +104,7 @@ def run_lora_job(
         r=lora_r, lora_alpha=lora_r * 2, lora_dropout=0.05,
         target_modules="all-linear", task_type="CAUSAL_LM",
     )
-    model = get_peft_model(engine.model, lora_config)
-    model.train()
+    model = adapters.start_training(job_id, lora_config)
 
     optimizer = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad), lr=lr)
 
@@ -111,6 +112,7 @@ def run_lora_job(
     max_steps = epochs * len(batches)
     step = 0
     start = time.perf_counter()
+    ok = False
 
     try:
         for _epoch in range(epochs):
@@ -131,12 +133,13 @@ def run_lora_job(
                 if on_progress:
                     on_progress(ProgressEvent(step=step, max_steps=max_steps, loss=loss_value, eta_seconds=eta))
 
+        # Con un adapter_name distinto de "default", peft guarda en
+        # <dir>/<adapter_name>: queda en /data/adapters/<job_id>, igual que antes.
         adapters_dir.mkdir(parents=True, exist_ok=True)
-        adapter_path = adapters_dir / job_id
-        model.save_pretrained(str(adapter_path))
-        return adapter_path
+        model.save_pretrained(str(adapters_dir), selected_adapters=[job_id])
+        ok = True
+        return adapters_dir / job_id
     finally:
-        # Siempre despegar el adaptador del modelo compartido al salir
-        # (éxito o error): Decide() vuelve a ver el modelo base tal cual.
-        model.eval()
-        engine.model = model.unload()
+        # Éxito o error, Decide() vuelve a ver el modelo base; un adaptador
+        # que falló a medias se borra para que nadie lo sirva.
+        adapters.finish_training(job_id, keep=ok)

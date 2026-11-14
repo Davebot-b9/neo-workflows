@@ -9,6 +9,33 @@ name: neo-workflows
 # recarga en caliente sigue sirviendo `npm run dev` en front/ (si el 5173 está
 # ocupado por el contenedor, Vite toma el siguiente puerto libre).
 
+x-neo-model: &neo-model
+  image: neo-workflows-neo-model
+  restart: unless-stopped
+  environment:
+    NEO_MODEL_DEVICE: ${NEO_MODEL_DEVICE:-cpu}
+    # qev.DecisionEngine no acepta un revision fijo (ver CLAUDE.md): esto
+    # siempre carga la rama main del repo en Hugging Face, no un commit
+    # pinneado. Limitación conocida de la librería, no decisión nuestra.
+    NEO_MODEL_PATH: ${NEO_MODEL_PATH:-OmniJev/OneJev-0.8B}
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+  volumes:
+    # El modelo (~2.2GB) se baja una vez de Hugging Face y se cachea aquí;
+    # sin esto, cada recreate del contenedor lo vuelve a bajar. También
+    # guarda los adaptadores LoRA de cada fine-tuning (/data/adapters).
+    - neo-model-cache:/data
+    # Datasets sintéticos para fine-tuning (Fase 3), sin copiarlos a la imagen.
+    - ./data/generated:/datasets:ro
+    # El comparador de calibración antes/después (Fase 3) escribe su
+    # reporte aquí, directo al bench/ del repo.
+    - ./bench:/bench
+  healthcheck:
+    test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=:50052", "-service=neo.v1.ModelService"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 300s
+
 services:
   jaeger:
     # Fase 4: colector OTLP (gRPC 4317, HTTP 4318) + UI (16686) en un solo
@@ -56,6 +83,8 @@ services:
     environment:
       NEO_VECTOR_INDEX_IMPL: ${NEO_VECTOR_INDEX_IMPL:-usearch}
       NEO_VECTOR_CAPACITY: ${NEO_VECTOR_CAPACITY:-100000}
+      # Instancias del modelo de embeddings (Object Pool, ver vector/src/embed/pool.rs).
+      NEO_VECTOR_EMBED_POOL: ${NEO_VECTOR_EMBED_POOL:-4}
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
     volumes:
       # El modelo de embeddings (~470MB) se baja una vez de Hugging Face y se
@@ -68,35 +97,16 @@ services:
       retries: 5
       start_period: 60s
 
+  # La configuración base usa una sola réplica: deja VRAM suficiente para
+  # fine-tuning LoRA en la RTX 4060. La segunda réplica para pruebas de carga
+  # se añade con compose.scale.yaml; dos modelos más LoRA no caben de forma
+  # confiable en 8 GB.
   neo-model:
+    <<: *neo-model
     build:
       context: ./model
-    restart: unless-stopped
     ports:
       - "50052:50052"
-    environment:
-      NEO_MODEL_DEVICE: ${NEO_MODEL_DEVICE:-cpu}
-      # qev.DecisionEngine no acepta un revision fijo (ver CLAUDE.md): esto
-      # siempre carga la rama main del repo en Hugging Face, no un commit
-      # pinneado. Limitación conocida de la librería, no decisión nuestra.
-      NEO_MODEL_PATH: ${NEO_MODEL_PATH:-OmniJev/OneJev-0.8B}
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
-    volumes:
-      # El modelo (~2.2GB) se baja una vez de Hugging Face y se cachea aquí;
-      # sin esto, cada recreate del contenedor lo vuelve a bajar. También
-      # guarda ahí los adaptadores LoRA que entrena la Fase 3 (/data/adapters).
-      - neo-model-cache:/data
-      # Datasets sintéticos para fine-tuning (Fase 3), sin copiarlos a la imagen.
-      - ./data/generated:/datasets:ro
-      # El comparador de calibración antes/después (Fase 3) escribe su
-      # reporte aquí, directo al bench/ del repo.
-      - ./bench:/bench
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/grpc_health_probe", "-addr=:50052", "-service=neo.v1.ModelService"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 300s
 
   neo-api:
     build:

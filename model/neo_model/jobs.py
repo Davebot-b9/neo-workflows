@@ -26,13 +26,17 @@ _jobs: dict[str, "queue.Queue[model_pb2.JobEvent | None]"] = {}
 _jobs_lock = threading.Lock()
 
 
-def start_fine_tune(engine, engine_lock: threading.Lock, request: model_pb2.FineTuneRequest) -> model_pb2.Job:
+def start_fine_tune(
+    engine, adapters, engine_lock: threading.Lock, training: threading.Event, request: model_pb2.FineTuneRequest
+) -> model_pb2.Job:
     job_id = str(uuid.uuid4())
     q: "queue.Queue[model_pb2.JobEvent | None]" = queue.Queue()
     with _jobs_lock:
         _jobs[job_id] = q
 
-    thread = threading.Thread(target=_run_job, args=(engine, engine_lock, request, job_id, q), daemon=True)
+    thread = threading.Thread(
+        target=_run_job, args=(engine, adapters, engine_lock, training, request, job_id, q), daemon=True
+    )
     thread.start()
     return model_pb2.Job(job_id=job_id, status="queued")
 
@@ -54,19 +58,25 @@ def watch_job(request: model_pb2.JobRef) -> Iterator[model_pb2.JobEvent]:
         _jobs.pop(request.job_id, None)
 
 
-def _run_job(engine, engine_lock: threading.Lock, request: model_pb2.FineTuneRequest, job_id: str, q) -> None:
+def _run_job(
+    engine, adapters, engine_lock: threading.Lock, training: threading.Event,
+    request: model_pb2.FineTuneRequest, job_id: str, q,
+) -> None:
     def on_progress(ev: lora_mod.ProgressEvent) -> None:
         q.put(model_pb2.JobEvent(
             job_id=job_id, step=ev.step, max_steps=ev.max_steps, loss=ev.loss,
             eta=f"{ev.eta_seconds:.0f}s", status="progress",
         ))
 
+    # Se marca ANTES de tomar el lock: los Decide nuevos rebotan de inmediato
+    # (neo-api los manda a otra réplica) en vez de esperar todo el entrenamiento.
+    training.set()
     try:
         dataset_path = DATASETS_DIR / Path(request.dataset_uri).name
         params = dict(request.hyperparameters)
         with engine_lock:
             adapter_path = lora_mod.run_lora_job(
-                engine, dataset_path, ADAPTERS_DIR, job_id,
+                engine, adapters, dataset_path, ADAPTERS_DIR, job_id,
                 epochs=int(params.get("epochs", 3)),
                 batch_size=int(params.get("batch_size", 4)),
                 lr=float(params.get("lr", 1e-4)),
@@ -77,4 +87,5 @@ def _run_job(engine, engine_lock: threading.Lock, request: model_pb2.FineTuneReq
     except Exception as exc:  # un job roto no debe tumbar el servidor
         q.put(model_pb2.JobEvent(job_id=job_id, status="error", error=str(exc)))
     finally:
+        training.clear()
         q.put(None)

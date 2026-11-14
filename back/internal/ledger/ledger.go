@@ -14,24 +14,25 @@ import (
 )
 
 type Decision struct {
-	RunID            string
-	WorkflowID       string
-	WorkflowVersion  int
-	Provider         string
-	Model            string
-	InputText        string
-	Answers          json.RawMessage
-	Confidence       float64
-	Route            string
-	LatencyMs        int
+	RunID           string
+	WorkflowID      string
+	WorkflowVersion int
+	Provider        string
+	Model           string
+	Adapter         string // "" = modelo base
+	InputText       string
+	Answers         json.RawMessage
+	Confidence      float64
+	Route           string
+	LatencyMs       int
 }
 
 type Writer struct {
-	pool      *pgxpool.Pool
-	queue     chan Decision
-	batchSize int
+	pool       *pgxpool.Pool
+	queue      chan Decision
+	batchSize  int
 	flushEvery time.Duration
-	done      chan struct{}
+	done       chan struct{}
 }
 
 func NewWriter(pool *pgxpool.Pool) *Writer {
@@ -100,9 +101,9 @@ func (w *Writer) Wait() { <-w.done }
 
 const insertDecisionSQL = `
 INSERT INTO decisions
-	(run_id, workflow_id, workflow_version, provider, model, input_text, answers, confidence, route, latency_ms)
+	(run_id, workflow_id, workflow_version, provider, model, adapter, input_text, answers, confidence, route, latency_ms)
 VALUES
-	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 
 // insertBatch manda el lote en un solo viaje de ida y vuelta con pgx.Batch
 // (pipelining), sin los problemas de tipado binario de CopyFrom para UUID/JSONB.
@@ -110,7 +111,7 @@ func (w *Writer) insertBatch(ctx context.Context, batch []Decision) error {
 	b := &pgx.Batch{}
 	for _, d := range batch {
 		b.Queue(insertDecisionSQL,
-			d.RunID, d.WorkflowID, d.WorkflowVersion, d.Provider, d.Model,
+			d.RunID, d.WorkflowID, d.WorkflowVersion, d.Provider, d.Model, d.Adapter,
 			d.InputText, d.Answers, d.Confidence, d.Route, d.LatencyMs,
 		)
 	}

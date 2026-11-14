@@ -69,6 +69,17 @@ describe("mock gateway", () => {
     expect(events.filter((e) => e.type === "job.progress")).toHaveLength(12);
     expect(events.at(-1)).toMatchObject({ type: "job.done", data: { job_id } });
   });
+
+  it("registra el adaptador al terminar, como neo-api (GET /api/adapters)", async () => {
+    const gw = createMockGateway({ speed: 0, schedule: instant });
+    expect(await gw.listAdapters()).toEqual([]);
+    const request = { base_model: "OmniJev/OneJev-0.8B@c02e305", dataset_uri: "documents_hard_train.jsonl", hyperparameters: { epochs: "1" } };
+    const { job_id } = await gw.startFineTune(request);
+    await collect<JobEvent>((cb) => gw.subscribeJob(job_id, cb), ["job.done", "job.error"]);
+    expect(await gw.listAdapters()).toMatchObject([
+      { id: job_id, base_model: request.base_model, dataset_uri: request.dataset_uri, adapter_uri: `/data/adapters/${job_id}` },
+    ]);
+  });
 });
 
 describe("simulateAnswer (forma System One)", () => {

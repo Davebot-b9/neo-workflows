@@ -5,7 +5,7 @@ package provider
 type Config struct {
 	Kind string // "local" | "jev"
 
-	LocalAddr string
+	LocalAddrs []string // una dirección por réplica de neo-model
 
 	JevBaseURL string
 	JevAPIKey  string

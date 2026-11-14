@@ -21,6 +21,9 @@ message DecideRequest {
   string model = 1; // versión fija, nunca "latest"
   string state = 2;
   map<string, Question> questions = 3;
+  // Adaptador LoRA entrenado (el job_id de su fine-tuning), aplicado sobre
+  // model sin fusionarlo. Vacío = el modelo base. Solo [A-Za-z0-9_-].
+  string adapter = 4;
 }
 
 // La forma de criteria depende de type: "choice" usa choice_criteria (opción
@@ -108,4 +111,5 @@ message ModelHealthResponse {
   bool ok = 1;
   bool gpu_available = 2;
   string detail = 3;
+  bool training = 4; // true mientras un fine-tuning tiene pausada la inferencia de esta réplica
 }

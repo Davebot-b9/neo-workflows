@@ -12,6 +12,7 @@ import argparse
 import json
 import sys
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import grpc
@@ -40,6 +41,10 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--collection", default="bench")
     parser.add_argument("--limit", type=int, default=None, help="cargar solo los primeros N documentos")
+    parser.add_argument(
+        "--workers", type=int, default=1,
+        help="lotes en vuelo a la vez; con el pool de embedders de neo-vector, igualarlo a NEO_VECTOR_EMBED_POOL",
+    )
     args = parser.parse_args()
 
     channel = grpc.insecure_channel(args.addr, options=[
@@ -48,24 +53,33 @@ def main() -> None:
     ])
     stub = vector_pb2_grpc.VectorServiceStub(channel)
 
-    start = time.perf_counter()
-    total = 0
-    for batch in batches(args.file, args.batch_size):
-        if args.limit is not None and total >= args.limit:
-            break
+    def upsert(batch: list[dict]) -> int:
         docs = [
             vector_pb2.Document(id=d["id"], text=d["text"], metadata={"category": d["category"]})
             for d in batch
         ]
-        resp = stub.Upsert(
+        return stub.Upsert(
             vector_pb2.UpsertRequest(collection=args.collection, documents=docs),
-            timeout=120,
-        )
-        total += resp.upserted
-        if total % 10_000 < args.batch_size:
-            elapsed = time.perf_counter() - start
-            rate = total / elapsed if elapsed > 0 else 0
-            print(f"{total} documentos cargados ({rate:.0f}/s)", flush=True)
+            timeout=300,
+        ).upserted
+
+    start = time.perf_counter()
+    total = 0
+    last_report = 0
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        in_flight = set()
+        for batch in batches(args.file, args.batch_size):
+            if args.limit is not None and total + len(in_flight) * args.batch_size >= args.limit:
+                break
+            in_flight.add(pool.submit(upsert, batch))
+            if len(in_flight) >= args.workers * 2:
+                done, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+                total += sum(f.result() for f in done)
+            if total - last_report >= 10_000:
+                last_report = total
+                elapsed = time.perf_counter() - start
+                print(f"{total} documentos cargados ({total / elapsed:.0f}/s)", flush=True)
+        total += sum(f.result() for f in in_flight)
 
     elapsed = time.perf_counter() - start
     print(f"listo: {total} documentos en {elapsed:.1f}s ({total / elapsed:.0f}/s)")

@@ -17,6 +17,7 @@ type Record struct {
 	WorkflowVersion int             `json:"workflow_version"`
 	Provider        string          `json:"provider"`
 	Model           string          `json:"model"`
+	Adapter         string          `json:"adapter,omitempty"`
 	InputText       string          `json:"input_text"`
 	Answers         json.RawMessage `json:"answers"`
 	Confidence      float64         `json:"confidence"`
@@ -36,7 +37,7 @@ func NewReader(pool *pgxpool.Pool) *Reader {
 }
 
 const recentDecisionsSQL = `
-SELECT run_id::text, workflow_id, workflow_version, provider, model, input_text,
+SELECT run_id::text, workflow_id, workflow_version, provider, model, adapter, input_text,
        answers, confidence, route, latency_ms, created_at
 FROM decisions
 ORDER BY id DESC
@@ -51,7 +52,7 @@ func (r *Reader) Recent(ctx context.Context, limit int) ([]Record, error) {
 	records, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Record, error) {
 		var rec Record
 		err := row.Scan(
-			&rec.RunID, &rec.WorkflowID, &rec.WorkflowVersion, &rec.Provider, &rec.Model, &rec.InputText,
+			&rec.RunID, &rec.WorkflowID, &rec.WorkflowVersion, &rec.Provider, &rec.Model, &rec.Adapter, &rec.InputText,
 			&rec.Answers, &rec.Confidence, &rec.Route, &rec.LatencyMs, &rec.CreatedAt,
 		)
 		return rec, err
