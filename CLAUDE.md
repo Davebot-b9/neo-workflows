@@ -112,9 +112,9 @@ suficiente, ver brief: "Fases 0-2 corren en CPU").
 **Medido de verdad** (no simulado), a 2000 documentos sintéticos (`data/generate_documents.py`, categorías contrato/factura/reporte) — la corrida completa al millón que pide el brief quedó pendiente, ver abajo:
 - **recall@10 = 0.993** (100 consultas de muestra, `bench/measure_recall.py` comparando usearch contra el índice de fuerza bruta).
 - **p95 de búsqueda secuencial: 32.3 ms** (incluye red + embedding de la query).
-- **p95 bajo carga concurrente (ghz, 10 conexiones): 209.5 ms** (`bench/loadtest.sh`) — más alto que el secuencial porque `Embedder` protege el modelo de fastembed con un `Mutex` (`vector/src/embed/mod.rs`): todas las llamadas de embedding se serializan, es el cuello de botella real bajo concurrencia. Queda como mejora de la Fase 4 (pool de instancias del modelo, o afinar el threading de `ort`), no se tocó aquí.
+- **p95 bajo carga concurrente (ghz, 10 conexiones): 209.5 ms** (`bench/loadtest.sh`) — más alto que el secuencial porque `Embedder` protege el modelo de fastembed con un `Mutex` (`vector/src/embed/mod.rs`): todas las llamadas de embedding se serializan, es el cuello de botella real bajo concurrencia. **Resuelto después de la Fase 4** con un pool de embedders (ver sección "Después de la Fase 4" abajo).
 
-**Pendiente, explícito**: correr `data/generate_documents.py --n 1000000`, cargar con `data/bulk_load.py` en ambas instancias (`compose.bench.yaml` levanta la de fuerza bruta en el puerto 50061) y repetir `bench/measure_recall.py` + `bench/loadtest.sh` a esa escala. A ~120 docs/s de carga por instancia (medido), son ~2.3h por instancia — se decidió explícitamente no correrlo todavía; la metodología ya está validada end-to-end a escala pequeña.
+**La corrida al millón ya se hizo** (ver "Después de la Fase 4" abajo y `bench/fase5_concurrencia.md`). En esta máquina no caben dos instancias con 1M a la vez, así que se usó `bench/record_topk.py` (graba y compara) en lugar de `measure_recall.py`.
 
 Verificado con Docker real, no solo "debería compilar":
 - `cargo build --release` y `cargo test` (4/4) corridos en `rust:1.99.1-trixie`. **Bookworm no sirve para este crate**: el runtime de ONNX que trae `ort` (dependencia de fastembed) necesita símbolos de glibc 2.38+ (`__isoc23_strtol` y afines) que Debian bookworm (glibc 2.36) no tiene — error de linking real, no hipotético. `vector/Dockerfile` usa `rust:1.99.1-trixie` / `debian:trixie-slim` para build y runtime (se abandonó `distroless` ahí: fastembed/onnxruntime necesitan más libs del sistema).
@@ -228,11 +228,9 @@ modelo en vivo vuelve a su estado base — "Go lo registra y el workflow
 puede apuntarle" es trabajo pendiente, ver Qué falta.
 
 **Pendiente, explícito**:
-- Go todavía no registra el `adapter_uri` que devuelve `WatchJob` ni hay
-  forma de que un workflow apunte a un adaptador entrenado — `neo-model`
-  siempre sirve el modelo base en `Decide`. Cerrar esto requiere decidir
-  cómo se referencia un adaptador desde `workflows/*.yaml` y sumarlo al
-  contrato (`.proto` primero).
+- ~~Go no registra el `adapter_uri` ni un workflow puede apuntar a un
+  adaptador~~ — **cerrado después de la Fase 4** (`adapter:` en el workflow,
+  `DecideRequest.adapter`, tabla `adapters`; ver abajo).
 - El entrenamiento de prueba usó muchos más pasos de los necesarios (ver
   salvedad arriba); valdría la pena un criterio de parada temprana.
 - No se probó reconectar `WatchJob` a un job ya en curso: `jobs.py` usa una
@@ -261,10 +259,10 @@ Workflows, Fine-tuning) con Tailwind v4 (`@tailwindcss/vite`, tokens en
 - Para probar con texto acentuado, no uses `curl -d` desde Git Bash en Windows: corrompe el UTF-8 en la línea de comandos antes de enviarlo (verificado: el mismo body desde Linux o el navegador llega bien). Usa `--data-binary @archivo.json` o prueba desde un contenedor.
 - **Operar el stack sin interrumpir a otros**: siempre con los dos archivos (`-f compose.yaml -f compose.gpu.yaml`, así se levantó) y `up -d --no-deps <servicio>` para recrear solo lo que cambió. Construir (`compose build`) no toca contenedores en ejecución.
 
-## OperaciÃ³n segura tras la Fase 4 (nov 2026)
+## Operación segura tras la Fase 4 (nov 2026)
 
-- La base (`compose.yaml` + `compose.gpu.yaml`) mantiene una sola rÃ©plica de `neo-model`, suficiente para inferencia y fine-tuning en la RTX 4060 de 8 GB. `compose.scale.yaml` es opt-in para medir concurrencia; no debe activarse durante LoRA porque dos rÃ©plicas dejan la GPU sin memoria.
-- `back/internal/grpcconn/h2c.go` no fija un timeout global al cliente HTTP/2: cada RPC conserva su contexto. AsÃ­ `WatchJob` puede transmitir entrenamientos de mÃ¡s de 30 s sin cortar el stream.
+- La base (`compose.yaml` + `compose.gpu.yaml`) mantiene una sola réplica de `neo-model`, suficiente para inferencia y fine-tuning en la RTX 4060 de 8 GB. `compose.scale.yaml` es opt-in para medir concurrencia; no debe activarse durante LoRA porque dos réplicas dejan la GPU sin memoria.
+- `back/internal/grpcconn/h2c.go` no fija un timeout global al cliente HTTP/2: cada RPC conserva su contexto. Así `WatchJob` puede transmitir entrenamientos de más de 30 s sin cortar el stream.
 
 ## Fase 4: trazas distribuidas y carga real (nov 2026)
 
@@ -335,10 +333,33 @@ replicables. **Decisión pendiente con Oscar, no tomada aquí**: pool de
 instancias, batching de `Decide`, o aceptar la cola con una señal visible en
 el front — cualquiera de las tres antes de llevar esta pieza a un
 "Ecosistema Ferrer IA" con más de un puñado de usuarios concurrentes.
+**Tomada después**: pool de embedders en neo-vector y réplicas de neo-model
+con round-robin en Go (ver la sección siguiente). Batching de `Decide` y la
+cola visible en el front siguen sin hacerse.
+
+## Después de la Fase 4: concurrencia, adaptadores y el millón (nov 2026)
+
+Reporte completo con tablas: `bench/fase5_concurrencia.md`. Patrones nuevos
+aprobados por Oscar antes de implementarlos: Object Pool (neo-vector) y
+round-robin con failover del lado de Go (neo-model).
+
+- **Pool de embedders** (`vector/src/embed/pool.rs`): N `TextEmbedding`, cada uno con `with_intra_threads(cores/N)`, prestados con un semáforo de tokio y devueltos en `Drop` (también tras un panic, hay prueba). `NEO_VECTOR_EMBED_POOL`, default **2** (en `main.rs` y en `compose.yaml`). ghz, 10 conexiones: Mutex p95 277 ms / 46.7 rps → pool 2: 69 ms / 159 rps (1.9 GB) → pool 4: 38 ms / 311 rps (3.4 GB). El default no es 4 por memoria (ver gotcha abajo).
+- **Réplicas de neo-model** (`back/internal/grpcconn/ring.go`, `provider/local`): `NEO_MODEL_ADDR` acepta varias direcciones separadas por coma; round-robin y, si una réplica responde `Unavailable` (entrenando, lock ocupado más de `NEO_MODEL_DECIDE_LOCK_TIMEOUT` = 20 s, o caída), prueba la siguiente en el mismo intento. `NotFound` (adaptador inexistente) no se reintenta. `modelclient` reserva la réplica que entrena para que dos fine-tunes no caigan en la misma. Medido (k6, 10 usuarios): 1.91 → 3.63 decisiones/s con 2 réplicas en la misma GPU (×1.9); con 2 usuarios, p95 de 3.1 s → 0.54 s. Sigue saturado a 10 usuarios.
+- **Adaptadores LoRA en producción**: `adapter: "<job_id>"` en `workflows/*.yaml` (solo con provider local; validado en `workflow.go`), `DecideRequest.adapter` y `ModelHealthResponse.training` en el `.proto`. `model/neo_model/adapters.py` carga cada adaptador como `PeftModel` sin fusionar y cambia con `set_adapter` por petición; `engine.model` sigue siendo el objeto HF original (asignar el wrapper de peft era lo que rompía `_run_one` en la Fase 3). neo-api registra el adaptador al terminar el job (tabla `adapters`, migración `0002`, `GET /api/adapters`) y la bitácora guarda qué adaptador usó cada decisión. `bench/adapter_e2e.py`: base 50/60 vs. LoRA 60/60 por neo-api, sin errores.
+- **Migraciones**: neo-api las aplica al arrancar (`ledger/migrate.go`, tabla `schema_migrations`) porque el `initdb` de Postgres solo corre con un volumen vacío.
+- **Kernels de qev**: `flash-linear-attention` no mejoró nada medible (p50 249 → 245 ms), no se agregó; `causal-conv1d` necesita `nvcc`.
+- **Millón de vectores**: carga a 160 docs/s (1.7 h por instancia), usearch con 4.7 GB de RAM, p95 secuencial 23 ms y 67 ms con 10 conexiones (lo mismo que a 2000: domina el embedding). **recall@10 cae a 0.793** (0.993 a 2000); los empates explican solo ~2-3 puntos (`bench/record_topk.py ties`). Era usearch con parámetros por defecto (16/128/64) sobre datos sintéticos muy agrupados. **Afinado**: `HnswParams` (`vector/src/index/usearch_index.rs`, env `NEO_VECTOR_HNSW_*`) con default 32/256/512, elegido con `bench/hnsw_sweep.py` (embebe 1M en GPU en 206 s y prueba índices fuera del servicio; usa la versión Python de usearch 2.26.6). Validado en el servicio: recall@10 0.793 → **0.849**, p95 secuencial 23 → 27 ms, igual bajo carga (71 ms, 161/s). El techo con estos datos es ~0.87 aunque suba `expansion_search`. La fuerza bruta propia a 1M: p95 203 ms secuencial.
+
+**Gotchas de esta máquina** (no del código):
+- La VM de Docker tiene 7.4 GB y el host suele tener ~10 GB ocupados por otras apps: compilar Rust con neo-model arriba tiró la VM varias veces. `vector/Dockerfile` limita `CARGO_BUILD_JOBS` y usa cachés de BuildKit; detén las réplicas de neo-model antes de compilar.
+- El `.env` trae `NEO_MODEL_DEVICE=cpu`: `compose.scale.yaml` usa `NEO_MODEL_SCALE_DEVICE` (default `cuda`) para que la segunda réplica no quede en CPU sin avisar, y `ports: !reset []` porque `extends` fusiona listas.
+- El Python del host perdió `grpcio`; los scripts de `bench/` se corren dentro de la imagen de neo-model: `MSYS_NO_PATHCONV=1 docker run --rm --network neo-workflows_default -v "D:\Apps\NEO:/w" -w /w --entrypoint python neo-workflows-neo-model bench/<script>.py ...`.
 
 Lo que queda pendiente, explícitamente fuera de este alcance:
 
 - [ ] Resolver o aceptar como deuda técnica el bloqueo de `typescript-eslint` contra TS7 (`npm run lint` no corre; `tsc --noEmit` sí).
-- [ ] Benchmark de Fase 1 al millón de vectores (ver sección Fase 1 arriba) — metodología ya validada a 2000, falta la corrida larga.
+- [x] Benchmark de Fase 1 al millón de vectores (ver "Después de la Fase 4").
+- [x] Recall de usearch a 1M: afinado de 0.793 a 0.849 (techo ~0.87 con estos datos sintéticos; más allá haría falta reordenar con fuerza bruta un top-N amplio).
 - [ ] Preguntas abiertas del brief que siguen pendientes: acceso a Jev, categorías reales del caso de clasificación (las de `data/generate_documents.py` son un placeholder razonable, no una decisión final), metas numéricas de cada métrica. **Ya resueltas con Oscar**: GPU = RTX 4060 (8GB); modelo de embeddings = `intfloat/multilingual-e5-small`; índice ANN = `usearch` (comparado contra fuerza bruta propia); modelo System One = `OmniJev/OneJev-0.8B` vía `qev`.
-- [ ] **Cuello de botella de concurrencia de la Fase 4** (ver arriba): decidir pool/batching/cola visible antes de producción multi-usuario — no implementado, es justo la decisión que pide el brief para esta fase.
+- [ ] **Concurrencia de neo-model**: pool de embedders y réplicas ya están; a 10 usuarios sigue saturado (~3.6 decisiones/s con 2 réplicas). Falta decidir batching de `Decide`, más GPU o una cola visible en el front.
+- [ ] Criterio de parada temprana en el LoRA y reconexión de `WatchJob` a un job en curso (ver Fase 3).

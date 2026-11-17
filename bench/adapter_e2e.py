@@ -5,6 +5,7 @@ contra la etiqueta. Lee el resultado de la bitácora (GET /api/runs), no del
 navegador.
 
     python bench/adapter_e2e.py --n 60
+    # o desde la red de Compose: --api http://neo-api:8080
 """
 
 from __future__ import annotations
@@ -33,10 +34,13 @@ def get(path: str):
 
 
 def main() -> None:
+    global API
     parser = argparse.ArgumentParser()
     parser.add_argument("--file", type=Path, default=Path("data/generated/documents_hard_test.jsonl"))
     parser.add_argument("--n", type=int, default=60)
+    parser.add_argument("--api", default=API)
     args = parser.parse_args()
+    API = args.api
 
     docs = [json.loads(line) for line in args.file.open(encoding="utf-8")][: args.n]
     workflows = ["clasificar-documento", "clasificar-documento-lora"]
