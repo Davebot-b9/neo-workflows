@@ -8,10 +8,14 @@ services:
       file: compose.yaml
       service: neo-model
     environment:
-      # Este overlay se usa con compose.gpu.yaml por defecto. Para una
-      # prueba CPU explícita: NEO_MODEL_DEVICE=cpu.
-      NEO_MODEL_DEVICE: ${NEO_MODEL_DEVICE:-cuda}
-    ports: []
+      # Este overlay se usa con compose.gpu.yaml por defecto. Variable propia
+      # y no NEO_MODEL_DEVICE: el .env trae NEO_MODEL_DEVICE=cpu y la réplica
+      # quedaba en CPU con una GPU reservada, sin avisar. Para una prueba CPU
+      # explícita: NEO_MODEL_SCALE_DEVICE=cpu.
+      NEO_MODEL_DEVICE: ${NEO_MODEL_SCALE_DEVICE:-cuda}
+    # !reset: con `extends`, una lista vacía se fusiona con la heredada y la
+    # réplica intentaba publicar también el 50052 (choque con neo-model).
+    ports: !reset []
     deploy:
       resources:
         reservations:
