@@ -16,7 +16,7 @@ services:
       - "50061:50051"
     environment:
       NEO_VECTOR_INDEX_IMPL: bruteforce
-      NEO_VECTOR_EMBED_POOL: ${NEO_VECTOR_EMBED_POOL:-4}
+      NEO_VECTOR_EMBED_POOL: ${NEO_VECTOR_EMBED_POOL:-2}
     volumes:
       - neo-vector-model-cache:/data
     healthcheck:

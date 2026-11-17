@@ -84,7 +84,15 @@ services:
       NEO_VECTOR_INDEX_IMPL: ${NEO_VECTOR_INDEX_IMPL:-usearch}
       NEO_VECTOR_CAPACITY: ${NEO_VECTOR_CAPACITY:-100000}
       # Instancias del modelo de embeddings (Object Pool, ver vector/src/embed/pool.rs).
-      NEO_VECTOR_EMBED_POOL: ${NEO_VECTOR_EMBED_POOL:-4}
+      # Medido con ghz (10 conexiones, bench/fase5_concurrencia.md): 2 da p95 69 ms
+      # y 159 búsquedas/s con 1.9 GB; 4 da 38 ms y 311/s pero 3.4 GB, demasiado
+      # para la VM de Docker de esta máquina (7.4 GB). Súbelo si hay memoria.
+      NEO_VECTOR_EMBED_POOL: ${NEO_VECTOR_EMBED_POOL:-2}
+      # Grafo HNSW de usearch (vector/src/index/usearch_index.rs). Vacío = el
+      # default del código (32 / 256 / 512), elegido con bench/hnsw_sweep.py.
+      NEO_VECTOR_HNSW_CONNECTIVITY: ${NEO_VECTOR_HNSW_CONNECTIVITY:-}
+      NEO_VECTOR_HNSW_EXPANSION_ADD: ${NEO_VECTOR_HNSW_EXPANSION_ADD:-}
+      NEO_VECTOR_HNSW_EXPANSION_SEARCH: ${NEO_VECTOR_HNSW_EXPANSION_SEARCH:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
     volumes:
       # El modelo de embeddings (~470MB) se baja una vez de Hugging Face y se

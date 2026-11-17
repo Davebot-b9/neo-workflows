@@ -73,6 +73,34 @@ def compare(args) -> None:
     print(f"  exacto ({exact['health']}): p50={exact['p50_ms']}ms p95={exact['p95_ms']}ms")
 
 
+def ties(args) -> None:
+    """recall@k tolerante a empates, contra la instancia exacta viva.
+
+    Con documentos sintéticos de pocas plantillas, a un millón hay muchos
+    vecinos con el mismo score que el k-ésimo: cuál de ellos entra al top-k
+    "exacto" es arbitrario. Aquí un id aproximado cuenta como acierto si su
+    score exacto es >= al k-ésimo score exacto (menos eps).
+    """
+    approx = json.loads(args.approx.read_text(encoding="utf-8"))
+    k = approx["k"]
+    stub = vector_pb2_grpc.VectorServiceStub(grpc.insecure_channel(args.exact_addr))
+    strict, tolerant, tied_at_k = [], [], []
+    for text, approx_ids in zip(approx["queries"], approx["results"]):
+        resp = stub.Search(
+            vector_pb2.SearchRequest(collection=args.collection, query_text=text, top_k=args.depth),
+            timeout=60,
+        )
+        scores = {m.id: m.score for m in resp.matches}
+        ranked = [m.id for m in resp.matches]
+        kth = resp.matches[k - 1].score
+        strict.append(len(set(approx_ids) & set(ranked[:k])) / k)
+        tolerant.append(sum(1 for i in approx_ids if scores.get(i, -1.0) >= kth - args.eps) / k)
+        tied_at_k.append(sum(1 for m in resp.matches if abs(m.score - kth) <= args.eps))
+    print(f"recall@{k} estricto: {statistics.mean(strict):.4f}")
+    print(f"recall@{k} tolerante a empates (eps={args.eps}): {statistics.mean(tolerant):.4f}")
+    print(f"vecinos empatados con el {k}-ésimo (mediana, top-{args.depth}): {statistics.median(tied_at_k)}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -90,8 +118,15 @@ def main() -> None:
     cmp_.add_argument("approx", type=Path)
     cmp_.add_argument("exact", type=Path)
 
+    tie = sub.add_parser("ties")
+    tie.add_argument("approx", type=Path)
+    tie.add_argument("--exact-addr", default="localhost:50051")
+    tie.add_argument("--collection", default="bench")
+    tie.add_argument("--depth", type=int, default=200)
+    tie.add_argument("--eps", type=float, default=1e-4)
+
     args = parser.parse_args()
-    record(args) if args.cmd == "record" else compare(args)
+    {"record": record, "compare": compare, "ties": ties}[args.cmd](args)
 
 
 if __name__ == "__main__":
