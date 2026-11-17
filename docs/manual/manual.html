@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Manual NEO Workflows</title>
+<style>
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url(data:font/woff2;base64,__INTER_B64__) format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url(data:font/woff2;base64,__JBM_B64__) format('woff2');
+}
+
+:root{
+  --primary: #6d5bf7;
+  --secondary: #22d3ee;
+  --ink: #171923;
+  --ink-soft: #565c6e;
+  --card: #f8f9fc;
+  --card-border: #e7e9f2;
+  --dark-a: #080b16;
+  --dark-b: #0d1330;
+  --dark-c: #1a1148;
+  --ok-bg: #eafbf3; --ok-bd: #9fe6c4; --ok-fg: #0a6b43;
+  --warn-bg: #fff6e6; --warn-bd: #f3d08a; --warn-fg: #8a5a00;
+  --err-bg: #fdecec; --err-bd: #f3a9a9; --err-fg: #9b1c1c;
+  --info-bg: #eef1ff; --info-bd: #c3caf7; --info-fg: #30399e;
+}
+
+*{ box-sizing: border-box; }
+html,body{ margin:0; padding:0; }
+body{
+  font-family: 'Inter', sans-serif;
+  color: var(--ink);
+  font-size: 10.3pt;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+@page { size: A4; margin: 0; }
+
+.page{
+  position: relative;
+  width: 210mm;
+  min-height: 297mm;
+  page-break-after: always;
+  overflow: hidden;
+  background: #fff;
+}
+.page:last-child{ page-break-after: auto; }
+
+code, .mono, .mono * { font-family: 'JetBrains Mono', monospace; }
+
+/* ---------- PORTADA / CIERRE (fondo oscuro) ---------- */
+.dark-sheet{
+  background: radial-gradient(circle at 15% 10%, rgba(109,91,247,0.35), transparent 45%),
+              radial-gradient(circle at 85% 85%, rgba(34,211,238,0.25), transparent 50%),
+              linear-gradient(135deg, var(--dark-a) 0%, var(--dark-b) 55%, var(--dark-c) 100%);
+  color: #f3f4fb;
+  display:flex;
+  flex-direction: column;
+}
+.grid-texture{
+  position:absolute; inset:0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events:none;
+}
+.watermark-icon{
+  position:absolute; right:-60px; bottom:-60px; width: 420px; height:420px;
+  opacity: 0.08; color:#fff;
+}
+
+.cover{ padding: 26mm 20mm; justify-content: space-between; }
+.cover-top{ display:flex; align-items:center; gap:10px; }
+.cover-top .mark{
+  width:34px;height:34px;border-radius:9px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  display:flex;align-items:center;justify-content:center;
+}
+.cover-top .mark svg{ width:18px; height:18px; stroke:#fff; }
+.cover-top .org{ font-size: 10.5pt; letter-spacing:0.14em; text-transform:uppercase; color:#c9cdf0; font-weight:600;}
+
+.eyebrow{
+  font-size: 9.5pt; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--secondary); font-weight:700; margin-bottom: 14px;
+}
+.cover-title{
+  font-size: 44pt; font-weight: 800; line-height:1.05; letter-spacing:-0.01em;
+  margin: 0 0 16px 0; max-width: 150mm; position:relative; z-index:2;
+}
+.cover-title .accent{ color: var(--primary); -webkit-text-fill-color: var(--primary); }
+.cover-sub{ font-size: 13pt; color:#c4c8ea; max-width: 130mm; font-weight:400; position:relative; z-index:2;}
+
+.cover-facts{
+  display:flex; gap: 14mm; position:relative; z-index:2; margin-top: 18mm;
+}
+.cover-fact .label{ font-size:8.5pt; text-transform:uppercase; letter-spacing:0.12em; color:#9aa0cf; margin-bottom:4px;}
+.cover-fact .value{ font-size: 15pt; font-weight:700; color:#fff; }
+.cover-fact .value.mono{ font-size: 12pt; }
+
+/* ---------- PAGINAS DE CONTENIDO ---------- */
+.content-page{ padding: 0 0 20mm 0; }
+.top-bar{ height: 3mm; background: linear-gradient(90deg, var(--primary), var(--secondary)); }
+.content-inner{ padding: 14mm 18mm 0 18mm; }
+
+.section-head{ display:flex; gap: 14px; align-items:flex-start; margin-bottom: 7mm; }
+.badge{
+  flex: 0 0 auto; width:40px; height:40px; border-radius:11px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  display:flex; align-items:center; justify-content:center;
+}
+.badge svg{ width:21px; height:21px; stroke:#fff; }
+.kicker{ font-size:8.7pt; letter-spacing:0.16em; text-transform:uppercase; color: var(--primary); font-weight:700; margin-bottom:3px;}
+.section-head h2{ font-size: 20pt; margin: 0 0 4px 0; font-weight:800; letter-spacing:-0.01em;}
+.lede{ color: var(--ink-soft); font-size: 10.3pt; max-width: 155mm; margin:0; }
+
+.page-footer{
+  position:absolute; bottom: 9mm; left:18mm; right:18mm;
+  display:flex; justify-content:space-between; align-items:center;
+  font-size: 7.6pt; color:#9aa0b4; border-top: 1px solid var(--card-border); padding-top: 4mm;
+  letter-spacing:0.03em;
+}
+
+/* ---------- TIMELINE DE PASOS ---------- */
+.timeline{ position:relative; margin-left: 6px; }
+.tl-step{ position:relative; padding-left: 36px; padding-bottom: 20px; page-break-inside: avoid; }
+.tl-step:last-child{ padding-bottom:0; }
+.tl-step::before{ /* linea */
+  content:""; position:absolute; left: 13px; top: 28px; bottom:-2px; width:2px;
+  background: var(--card-border);
+}
+.tl-step:last-child::before{ display:none; }
+.tl-num{
+  position:absolute; left:0; top:0; width:28px; height:28px; border-radius:50%;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color:#fff; font-weight:700; font-size: 11pt; display:flex; align-items:center; justify-content:center;
+}
+.tl-step h4{ margin:0 0 4px 0; font-size: 11pt; font-weight:700; }
+.tl-step p{ margin:0; color: var(--ink-soft); font-size: 9.8pt; }
+.tl-sub{
+  margin-top:8px; background: var(--card); border:1px solid var(--card-border); border-radius:8px;
+  padding: 8px 12px; font-size:9pt; color: var(--ink-soft);
+}
+.tl-sub b{ color: var(--ink); }
+
+/* ---------- CODE / TERMINAL ---------- */
+.code-win{ border-radius:10px; overflow:hidden; margin: 10px 0; page-break-inside: avoid; box-shadow: 0 1px 3px rgba(0,0,0,0.08);}
+.code-bar{
+  background:#1b1f2b; padding: 7px 12px; display:flex; align-items:center; gap:7px;
+}
+.code-bar .dot{ width:9px;height:9px;border-radius:50%; }
+.code-bar .dot.r{ background:#ff5f57;} .code-bar .dot.y{background:#febc2e;} .code-bar .dot.g{background:#28c840;}
+.code-bar .fname{ margin-left:8px; color:#8b92a8; font-size:8.3pt; }
+.code-body{ background:#0d1117; color:#c9d1d9; padding: 12px 14px; font-size:8.7pt; line-height:1.65; white-space:pre; overflow:hidden;}
+.c-key{ color: var(--secondary); } .c-str{ color:#e3b341; } .c-var{ color:#b4a9ff;} .c-cmt{ color:#6b7280; font-style:italic;}
+
+.term{ background:#0d1117; border-radius:10px; padding:12px 14px; font-size:8.7pt; color:#c9d1d9; margin:10px 0; page-break-inside: avoid;}
+.term .ln{ display:flex; gap:8px; margin:2px 0;}
+.term .prompt{ color: var(--secondary); }
+.term .ok{ color:#3fb950; }
+
+/* ---------- GRID CARDS ---------- */
+.cards{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0; }
+.cards.two{ grid-template-columns: repeat(2, 1fr); }
+.card{ background: var(--card); border:1px solid var(--card-border); border-radius:10px; padding: 13px; page-break-inside: avoid; }
+.card .ic{ width:26px;height:26px;border-radius:7px; background: linear-gradient(135deg, var(--primary), var(--secondary)); display:flex;align-items:center;justify-content:center; margin-bottom:8px;}
+.card .ic svg{ width:14px;height:14px;stroke:#fff;}
+.card h5{ margin:0 0 4px 0; font-size:9.8pt; font-weight:700;}
+.card p{ margin:0; font-size:8.6pt; color: var(--ink-soft); }
+.card .tag{ display:inline-block; margin-top:6px; font-size:7.3pt; text-transform:uppercase; letter-spacing:0.06em; color: var(--primary); font-weight:700;}
+
+/* ---------- CALLOUTS ---------- */
+.callout{ display:flex; gap:10px; border-radius:9px; padding: 10px 13px; margin:10px 0; font-size:9pt; page-break-inside: avoid; }
+.callout svg{ width:16px;height:16px; flex:0 0 auto; margin-top:2px;}
+.callout b{ font-weight:700; }
+.callout.info{ background: var(--info-bg); border:1px solid var(--info-bd); color: var(--info-fg); }
+.callout.warn{ background: var(--warn-bg); border:1px solid var(--warn-bd); color: var(--warn-fg); }
+.callout.ok{ background: var(--ok-bg); border:1px solid var(--ok-bd); color: var(--ok-fg); }
+.callout.err{ background: var(--err-bg); border:1px solid var(--err-bd); color: var(--err-fg); }
+
+/* ---------- TABLA ---------- */
+table.doc{ width:100%; border-collapse: collapse; margin: 10px 0; font-size:8.8pt; page-break-inside: avoid; }
+table.doc thead th{
+  background:#1b1f2b; color:#fff; text-align:left; padding:7px 10px;
+  text-transform:uppercase; font-size:7.6pt; letter-spacing:0.05em; font-weight:700;
+}
+table.doc tbody td{ padding:7px 10px; border-bottom:1px solid var(--card-border); }
+table.doc tbody tr:nth-child(even){ background:#fafafe; }
+table.doc tbody td:first-child{ font-weight:700; }
+
+/* ---------- TROUBLESHOOTING ---------- */
+.issue{ border-left:4px solid #e24c4c; background: var(--card); border-radius:0 9px 9px 0; padding:11px 14px; margin:10px 0; page-break-inside: avoid;}
+.issue h5{ margin:0 0 5px 0; font-size:9.8pt; font-weight:700; }
+.issue .errline{ display:inline-block; background:#0d1117; color:#f2a9a9; font-family:'JetBrains Mono',monospace; font-size:8pt; padding:3px 8px; border-radius:5px; margin: 4px 0 7px 0;}
+.issue p{ margin:3px 0; font-size:8.8pt; color: var(--ink-soft); }
+.issue p b{ color: var(--ink); }
+
+/* ---------- CIERRE ---------- */
+.closing{ padding: 30mm 24mm; align-items:center; justify-content:center; text-align:center; gap: 14px; }
+.closing .mark-big{
+  width:60px;height:60px;border-radius:16px; margin:0 auto 10px auto;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  display:flex;align-items:center;justify-content:center;
+}
+.closing .mark-big svg{ width:30px;height:30px; stroke:#fff; }
+.closing h2{ font-size:22pt; font-weight:800; margin:0 0 8px 0; }
+.closing p{ color:#c4c8ea; font-size:11pt; max-width:120mm; margin: 0 auto; }
+.closing .foot-org{ margin-top: 26mm; color:#8a90bf; font-size:8.5pt; letter-spacing:0.08em; text-transform:uppercase;}
+</style>
+</head>
+<body>
+
+<!-- ============ PORTADA ============ -->
+<div class="page dark-sheet cover">
+  <div class="grid-texture"></div>
+  <svg class="watermark-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+  <div class="cover-top">
+    <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg></div>
+    <div class="org">NEO Workflows · Proyecto personal</div>
+  </div>
+  <div style="position:relative; z-index:2;">
+    <div class="eyebrow">Manual técnico · Operación y uso</div>
+    <h1 class="cover-title">Cómo usar <span class="accent">NEO Workflows</span> de punta a punta.</h1>
+    <p class="cover-sub">Levantar el stack, correr un run, leer la cascada de confianza, entrenar un fine-tuning y ver las trazas — todo lo que necesitas para operar el sistema vos mismo, Oscar.</p>
+  </div>
+  <div class="cover-facts">
+    <div class="cover-fact"><div class="label">Alcance</div><div class="value">4 servicios</div></div>
+    <div class="cover-fact"><div class="label">Fases cubiertas</div><div class="value">0 → 4</div></div>
+    <div class="cover-fact"><div class="label">Versión</div><div class="value mono">nov 2026</div></div>
+  </div>
+</div>
+
+<!-- ============ 1. QUE ES ============ -->
+<div class="page content-page">
+  <div class="top-bar"></div>
+  <div class="content-inner">
+    <div class="section-head">
+      <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
+      <div>
+        <div class="kicker">Fundamentos</div>
+        <h2>¿Qué es NEO Workflows?</h2>
+        <p class="lede">Un servicio de decisiones tipadas estilo "System One": le das un documento y un workflow, y el sistema busca precedentes, le pregunta a un modelo y aplica una cascada de confianza para decidir si la respuesta pasa automático, se escala a un LLM, o va a revisión humana.</p>
+      </div>
+    </div>
+
+    <p style="margin:0 0 10px 0; color:var(--ink-soft);">El sistema está dividido en cuatro piezas, cada una con una sola responsabilidad — es la regla más importante del proyecto: <b>la lógica de negocio vive solo en Go</b>, Python solo sirve y entrena el modelo, y Rust solo hace vectores.</p>
+
+    <div class="cards two">
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg></div>
+        <h5>web <span class="tag">TypeScript · React</span></h5>
+        <p>Las 5 pantallas que usas todos los días: Centro de control, Playground, Historial, Workflows y Fine-tuning. Habla con <b>neo-api</b> por HTTP y SSE — nunca directo con Rust o Python.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M4 17h16M4 12h10M4 7h16"/></svg></div>
+        <h5>neo-api <span class="tag">Go</span></h5>
+        <p>El único lugar con lógica de negocio. Orquesta cada run (buscar → decidir → cascada), guarda la bitácora en PostgreSQL y expone todo por HTTP + eventos en vivo (SSE).</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+        <h5>neo-vector <span class="tag">Rust</span></h5>
+        <p>Convierte texto en vectores y busca los documentos más parecidos (embeddings + índice <b>usearch</b>). No decide nada, solo encuentra precedentes.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h.01M15 9h.01M9 15c.8.7 1.9 1 3 1s2.2-.3 3-1"/></svg></div>
+        <h5>neo-model <span class="tag">Python</span></h5>
+        <p>Sirve el modelo <b>OmniJev/OneJev-0.8B</b> para responder las preguntas del workflow, y entrena los ajustes finos (fine-tuning) cuando se lo pides.</p>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg>
+      <div><b>Nota:</b> neo-api, neo-vector y neo-model se hablan entre sí por gRPC interno (no lo ves nunca). Lo único con lo que tú interactúas es con <code>web</code>, en tu navegador.</div>
+    </div>
+
+    <p style="margin:14px 0 6px 0; color:var(--ink-soft);">Cómo se conectan entre sí, de afuera hacia adentro:</p>
+    <table class="doc">
+      <thead><tr><th>De</th><th>A</th><th>Protocolo</th></tr></thead>
+      <tbody>
+        <tr><td>Tu navegador</td><td>neo-api</td><td>HTTP (comandos: correr un run, lanzar un fine-tuning) + <b>SSE</b> (eventos en vivo: etapas, progreso)</td></tr>
+        <tr><td>neo-api</td><td>neo-vector / neo-model</td><td>gRPC puro — nunca lo ves, pero es el mismo canal por el que viajan las trazas (ver página "Ver las trazas")</td></tr>
+        <tr><td>neo-api</td><td>PostgreSQL</td><td>SQL — guarda cada decisión en una tabla que no se puede editar ni borrar después (append-only, a propósito)</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:8px 0 0 0; color:var(--ink-soft); font-size:9pt;">Esta separación es la que te deja cambiar de proveedor de modelo (local o Jev, un servicio externo de decisiones) sin tocar nada del resto: neo-api habla con cualquiera de los dos exactamente igual.</p>
+  </div>
+  <div class="page-footer"><span>Manual NEO Workflows</span><span>1 · Fundamentos</span></div>
+</div>
+
+<!-- ============ 2. LEVANTAR EL STACK ============ -->
+<div class="page content-page">
+  <div class="top-bar"></div>
+  <div class="content-inner">
+    <div class="section-head">
+      <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
+      <div>
+        <div class="kicker">Preparación</div>
+        <h2>Levantar el stack</h2>
+        <p class="lede">Todo corre en Docker Compose. Con GPU (RTX 4060 u otra) el modelo decide en cientos de milisegundos; sin GPU funciona igual, pero más lento.</p>
+      </div>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-step">
+        <div class="tl-num">1</div>
+        <h4>Confirma que Docker Desktop está corriendo</h4>
+        <p>Si no abre, o <code>docker info</code> falla, ábrelo manualmente y espera 20-30s a que el ícono de la bandeja deje de animarse antes de seguir.</p>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">2</div>
+        <h4>Levanta el stack completo con GPU (recomendado)</h4>
+        <p>Desde la raíz del repo (<code>D:\Apps\NEO</code>):</p>
+        <div class="code-win">
+          <div class="code-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">terminal</span></div>
+          <div class="code-body">docker compose -f compose.yaml -f compose.gpu.yaml up -d</div>
+        </div>
+        <div class="tl-sub">¿Sin GPU a la mano? Usa solo <b><code>docker compose up -d</code></b> — el modelo corre en CPU. Funciona para probar, pero el fine-tuning (Fase 3) sí necesita GPU.</div>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">3</div>
+        <h4>Espera a que los 5 servicios queden "healthy"</h4>
+        <p>La primera vez tarda — el modelo (~2.2GB) y los embeddings (~470MB) se bajan de Hugging Face y se cachean en volúmenes de Docker; las siguientes veces es mucho más rápido.</p>
+        <div class="term">
+          <div class="ln"><span class="prompt">$</span> docker compose -f compose.yaml -f compose.gpu.yaml ps</div>
+          <div class="ln ok">✓ neo-api, neo-vector, neo-model, postgres, web — Up (healthy)</div>
+        </div>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">4</div>
+        <h4>Abre la aplicación</h4>
+        <p>En tu navegador: <code>http://localhost:5173</code>. Si ese puerto está ocupado, cámbialo con la variable <code>NEO_WEB_PORT</code>.</p>
+      </div>
+    </div>
+
+    <table class="doc">
+      <thead><tr><th>Servicio</th><th>Puerto</th><th>Para qué</th></tr></thead>
+      <tbody>
+        <tr><td>web</td><td>5173</td><td>La aplicación — esto es lo que abres en el navegador.</td></tr>
+        <tr><td>neo-api</td><td>8080</td><td>API HTTP/SSE (el front le habla a esto; rara vez lo necesitas directo).</td></tr>
+        <tr><td>postgres</td><td>5432</td><td>Bitácora de decisiones (append-only).</td></tr>
+        <tr><td>neo-vector / neo-model</td><td>50051 / 50052</td><td>gRPC interno — no se abren en el navegador.</td></tr>
+        <tr><td>jaeger</td><td>16686</td><td>UI de trazas (ver página "Ver las trazas").</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+      <div><b>Importante:</b> si editas código y quieres ver el cambio, primero reconstruye la imagen (<code>docker compose build &lt;servicio&gt;</code>) y luego recréala (<code>up -d --no-deps &lt;servicio&gt;</code>). Solo recrear sin reconstruir deja la imagen vieja corriendo.</div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Manual NEO Workflows</span><span>2 · Preparación</span></div>
+</div>
+
+<!-- ============ 3. LAS 5 PANTALLAS ============ -->
+<div class="page content-page">
+  <div class="top-bar"></div>
+  <div class="content-inner">
+    <div class="section-head">
+      <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
+      <div>
+        <div class="kicker">Recorrido</div>
+        <h2>Las 5 pantallas</h2>
+        <p class="lede">Todo lo que haces vive en una de estas cinco pantallas, siempre en el menú de la izquierda.</p>
+      </div>
+    </div>
+
+    <div class="cards two">
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
+        <h5>Centro de control</h5>
+        <p>La pantalla de inicio: salud de los 4 servicios en vivo (según <code>/healthz</code>), métricas (runs totales, % automático, confianza media, latencia p50) y las rutas de la cascada repartidas en porcentaje.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><polygon points="6 4 20 12 6 20 6 4"/></svg></div>
+        <h5>Playground</h5>
+        <p>Donde ejecutas un run: eliges workflow, pegas o escribes un documento (o usas un ejemplo sintético) y ves cada etapa avanzar en vivo por SSE. El detalle completo está en la página siguiente.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
+        <h5>Historial</h5>
+        <p>Todos los runs anteriores — combina lo que quedó guardado en tu navegador con la bitácora real de PostgreSQL (<code>GET /api/runs</code>), así que sobrevive a que cierres la pestaña.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></div>
+        <h5>Workflows</h5>
+        <p>La lista de workflows disponibles (vienen de <code>workflows/*.yaml</code>) y su configuración: modelo fijado por versión, cuántos precedentes busca, y qué preguntas le hace al modelo.</p>
+      </div>
+    </div>
+    <div class="cards two" style="margin-top:0;">
+      <div class="card" style="grid-column: span 1;">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 2a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5ZM7 14a5 5 0 0 0 10 0M12 19v3"/></svg></div>
+        <h5>Fine-tuning</h5>
+        <p>Entrena un ajuste LoRA sobre el modelo base con tus propios datos y mira el progreso (paso, pérdida, tiempo estimado) en vivo. Detalle completo más adelante en este manual.</p>
+      </div>
+    </div>
+
+    <div class="callout ok">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 13 4 4L19 7"/></svg>
+      <div><b>Tip:</b> la pestaña inferior izquierda ("Fuente de datos") te deja alternar entre <b>Auto</b> (detecta si neo-api está vivo), <b>En vivo</b> (fuerza el backend real) y <b>Demo</b> (simula todo en el navegador, útil si el stack está apagado — por ejemplo para enseñarle la interfaz a alguien sin tener Docker corriendo).</div>
+    </div>
+
+    <p style="margin:14px 0 6px 0; color:var(--ink-soft);">De dónde saca cada pantalla lo que muestra:</p>
+    <table class="doc">
+      <thead><tr><th>Pantalla</th><th>De dónde viene</th></tr></thead>
+      <tbody>
+        <tr><td>Centro de control</td><td><code>GET /healthz</code> (salud) + agregados de la bitácora</td></tr>
+        <tr><td>Playground</td><td><code>POST /api/runs</code> + eventos por SSE (<code>GET /api/runs/{id}/events</code>)</td></tr>
+        <tr><td>Historial</td><td>localStorage del navegador (runs de esta sesión) combinado con <code>GET /api/runs</code> (todo lo que ya quedó en la bitácora)</td></tr>
+        <tr><td>Workflows</td><td><code>GET /api/workflows</code> — lo que haya en <code>workflows/*.yaml</code> dentro del repo</td></tr>
+        <tr><td>Fine-tuning</td><td><code>POST /api/jobs/finetune</code> + eventos por SSE (<code>GET /api/jobs/{id}/events</code>)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>Manual NEO Workflows</span><span>3 · Recorrido</span></div>
+</div>
+
+<!-- ============ 4. CORRER UN RUN ============ -->
+<div class="page content-page">
+  <div class="top-bar"></div>
+  <div class="content-inner">
+    <div class="section-head">
+      <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><polygon points="6 4 20 12 6 20 6 4"/></svg></div>
+      <div>
+        <div class="kicker">Playground</div>
+        <h2>Ejecutar un run</h2>
+        <p class="lede">Un "run" es una decisión completa: de un texto a una ruta de cascada, pasando por buscar precedentes y preguntarle al modelo.</p>
+      </div>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-step">
+        <div class="tl-num">1</div>
+        <h4>Ve a Playground y elige el workflow</h4>
+        <p>Por ejemplo <code>clasificar-documento · v1</code>. Cada workflow trae su propio modelo fijado por versión y sus propias preguntas — nunca <code>latest</code>.</p>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">2</div>
+        <h4>Pega tu documento o usa un ejemplo sintético</h4>
+        <p>Los botones "Contrato", "Factura vencida", "Reporte trimestral" y "Ambiguo" cargan texto de prueba al instante — útil para probar sin tener un documento real a la mano.</p>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">3</div>
+        <h4>Ejecuta el run</h4>
+        <p>Botón "Ejecutar run", o el atajo <code>Ctrl + Enter</code>. Verás tres etapas avanzar en vivo:</p>
+        <div class="tl-sub">
+          <b>Buscar precedentes</b> (neo-vector, Rust) → <b>Decidir</b> (neo-model/Jev, Python) → <b>Cascada</b> (neo-api, Go). Cada una muestra su tiempo real en milisegundos.
+        </div>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">4</div>
+        <h4>Lee el resultado</h4>
+        <p>Arriba, la <b>ruta</b> de la cascada (Automático / Escalar a LLM / Revisión humana) con su confianza. Abajo, la respuesta a cada pregunta del workflow — ver la página siguiente para interpretarlas.</p>
+      </div>
+    </div>
+
+    <div class="term">
+      <div class="ln"><span class="prompt">+96ms</span> run.stage <span style="color:#8b92a8">{"name":"buscar-precedentes","status":"started"}</span></div>
+      <div class="ln"><span class="prompt">+150ms</span> run.stage <span class="ok">{"name":"buscar-precedentes","status":"done","ms":54}</span></div>
+      <div class="ln"><span class="prompt">+150ms</span> run.stage <span style="color:#8b92a8">{"name":"decidir","status":"started"}</span></div>
+      <div class="ln"><span class="prompt">+605ms</span> run.stage <span class="ok">{"name":"decidir","status":"done","ms":455}</span></div>
+      <div class="ln"><span class="prompt">+606ms</span> run.done <span class="ok">{"run_id":"…"}</span></div>
+    </div>
+    <p style="font-size:8.3pt; color:var(--ink-soft); margin-top:-4px;">Así se ve el "Stream SSE" del Playground — no es un ejemplo inventado, son los eventos reales que manda neo-api mientras el run avanza.</p>
+
+    <div class="callout warn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+      <div><b>Si algo falla a medio run</b> (por ejemplo, neo-model no responde), verás un evento <code>run.error</code> en vez de <code>run.done</code>, con el mensaje de error tal cual. Ese run no queda en la bitácora — <code>decisions</code> solo guarda decisiones completas, nunca intentos fallidos a medias.</div>
+    </div>
+
+    <p style="margin:14px 0 6px 0; color:var(--ink-soft);">Los cuatro ejemplos sintéticos del Playground, por si no sabes cuál probar primero:</p>
+    <div class="cards">
+      <div class="card"><h5>Contrato</h5><p>Arrendamiento, plazo forzoso — para probar la categoría "contrato".</p></div>
+      <div class="card"><h5>Factura vencida</h5><p>Monto y fecha de pago — para probar "factura" y la pregunta de urgencia.</p></div>
+      <div class="card"><h5>Reporte trimestral</h5><p>Cifras de ventas — para probar la categoría "reporte".</p></div>
+      <div class="card"><h5>Ambiguo</h5><p>A propósito evita las palabras que delatan la categoría — bueno para ver una confianza baja de verdad.</p></div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Manual NEO Workflows</span><span>4 · Playground</span></div>
+</div>
+
+<!-- ============ 5. CASCADA Y CONFIANZA ============ -->
+<div class="page content-page">
+  <div class="top-bar"></div>
+  <div class="content-inner">
+    <div class="section-head">
+      <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5ZM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+      <div>
+        <div class="kicker">Cómo leer el resultado</div>
+        <h2>La cascada y la confianza</h2>
+        <p class="lede">Cada respuesta trae una confianza de 0 a 1; esa confianza (la más baja de todas las preguntas del run) decide la ruta.</p>
+      </div>
+    </div>
+
+    <table class="doc">
+      <thead><tr><th>Ruta</th><th>Cuándo</th><th>Qué significa</th></tr></thead>
+      <tbody>
+        <tr><td>Automático</td><td>Confianza ≥ 0.90 (umbral por workflow)</td><td>El sistema sigue solo, sin intervención.</td></tr>
+        <tr><td>Escalar a LLM</td><td>Confianza media (entre los dos umbrales)</td><td>Se consulta a un LLM más grande antes de decidir — por ahora, el proveedor Jev está implementado pero inactivo (sin acceso todavía).</td></tr>
+        <tr><td>Revisión humana</td><td>Confianza &lt; 0.60 (umbral por workflow)</td><td>Un humano tiene que mirarlo antes de actuar.</td></tr>
+      </tbody>
+    </table>
+
+    <p style="color:var(--ink-soft); margin: 10px 0 4px 0;">Las preguntas de un workflow vienen en tres formas — vale la pena saber distinguirlas al leer un resultado:</p>
+    <div class="cards">
+      <div class="card">
+        <h5><code class="mono" style="font-size:8.5pt;">choice</code></h5>
+        <p>Elige una opción de una lista (ej. categoría: factura/contrato/reporte). Trae la opción elegida, la probabilidad de cada una, y una confianza propia.</p>
+      </div>
+      <div class="card">
+        <h5><code class="mono" style="font-size:8.5pt;">score</code></h5>
+        <p>Un valor en una escala ordenada (ej. nivel de urgencia 1-5), con su propia leyenda y confianza.</p>
+      </div>
+      <div class="card">
+        <h5><code class="mono" style="font-size:8.5pt;">noul</code></h5>
+        <p>Sí/No puro, un solo número entre 0 y 1. Su confianza <b>se calcula</b>, no viene dada: <code style="font-size:8pt;">|2×noul − 1|</code> — mientras más cerca de 0 o de 1, más seguro está.</p>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg>
+      <div><b>Ejemplo real:</b> una pregunta <code>noul</code> con <code>noul: 0.216</code> da confianza <code>|2×0.216−1| = 0.568</code> — por debajo del umbral de 0.60, así que ese run entero se va a revisión humana aunque las demás preguntas estén muy seguras.</div>
+    </div>
+
+    <p style="margin:14px 0 6px 0; color:var(--ink-soft);">Dos detalles que vale la pena conocer al leer un resultado:</p>
+    <div class="cards two">
+      <div class="card">
+        <h5>El modelo también reporta uso</h5>
+        <p>Cada respuesta trae <code>input_tokens</code> / <code>output_tokens</code> — cuánto texto procesó el modelo. No trae latencia: eso lo mide neo-api por su cuenta, en Go, y es lo que ves en cada etapa del Playground.</p>
+      </div>
+      <div class="card">
+        <h5>El modelo es intercambiable</h5>
+        <p>La forma de la respuesta (<code>choice</code>/<code>score</code>/<code>noul</code>) imita el API público de System One a propósito — así que, si algún día hay acceso a Jev (un proveedor externo), se puede usar sin cambiar nada de esta pantalla ni de la lógica de cascada.</p>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Manual NEO Workflows</span><span>5 · Cascada y confianza</span></div>
+</div>
+
+<!-- ============ 6. FINE-TUNING ============ -->
+<div class="page content-page">
+  <div class="top-bar"></div>
+  <div class="content-inner">
+    <div class="section-head">
+      <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 2a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5ZM7 14a5 5 0 0 0 10 0M12 19v3"/></svg></div>
+      <div>
+        <div class="kicker">Entrenamiento</div>
+        <h2>Entrenar un fine-tuning</h2>
+        <p class="lede">Cuando el modelo base no acierta lo suficiente en tus documentos, puedes entrenarle un ajuste LoRA con ejemplos propios.</p>
+      </div>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-step">
+        <div class="tl-num">1</div>
+        <h4>Ve a Fine-tuning y elige tu dataset</h4>
+        <p>Un archivo con ejemplos ya etiquetados. Entre más parecidos sean a los documentos reales que vas a clasificar después, mejor generaliza el ajuste.</p>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">2</div>
+        <h4>Ajusta los hiperparámetros si quieres</h4>
+        <p>Épocas, tamaño de lote y tasa de aprendizaje tienen valores por defecto razonables (3 épocas, lote 4, <code>lr=1e-4</code>) — no hace falta tocarlos para un primer intento.</p>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">3</div>
+        <h4>Lanza el job y mira el progreso en vivo</h4>
+        <p>Verás el paso actual, la pérdida (loss) y el tiempo estimado restante, actualizándose en tiempo real hasta que termine.</p>
+        <div class="term">
+          <div class="ln"><span class="prompt">+2.1s</span> job.progress <span style="color:#8b92a8">{"step":12,"max_steps":750,"loss":0.0003,"eta":"4m50s"}</span></div>
+          <div class="ln"><span class="prompt">+291s</span> job.progress <span style="color:#8b92a8">{"step":750,"max_steps":750,"loss":0.0001,"eta":"0s"}</span></div>
+          <div class="ln"><span class="prompt">+291s</span> job.done <span class="ok">{"adapter_uri":"/data/adapters/&lt;job_id&gt;"}</span></div>
+        </div>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">4</div>
+        <h4>El adaptador queda guardado</h4>
+        <p>Al terminar, se guarda versionado — pero <b>no se usa automáticamente</b> en los runs normales todavía. Hoy, usar un adaptador entrenado para decidir requiere un paso manual aparte; es un pendiente conocido del proyecto.</p>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+      <div><b>Importante:</b> mientras un fine-tuning está corriendo, neo-model <b>pausa la inferencia</b> — ningún run nuevo podrá "Decidir" hasta que el entrenamiento termine. Evita lanzar un fine-tuning si hay runs urgentes pendientes.</div>
+    </div>
+  </div>
+  <div class="page-footer"><span>Manual NEO Workflows</span><span>6 · Fine-tuning</span></div>
+</div>
+
+<!-- ============ 7. TRAZAS + PROBLEMAS COMUNES ============ -->
+<div class="page content-page">
+  <div class="top-bar"></div>
+  <div class="content-inner">
+    <div class="section-head">
+      <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M4 17V7M4 7l8-4 8 4M4 7l8 4m0 0 8-4M12 11v10M20 7v10l-8 4"/></svg></div>
+      <div>
+        <div class="kicker">Observabilidad</div>
+        <h2>Ver las trazas en Jaeger</h2>
+        <p class="lede">Cada run deja un rastro que cruza las 4 capas — útil para ver exactamente dónde se fue el tiempo, o dónde falló algo.</p>
+      </div>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-step">
+        <div class="tl-num">1</div>
+        <h4>Abre la UI de Jaeger y elige un servicio</h4>
+        <p><code>http://localhost:16686</code> (corre junto con el resto del stack). En el selector "Service" elige <code>web</code> para ver trazas que empiezan en el navegador, o <code>neo-api</code>/<code>neo-vector</code>/<code>neo-model</code> para ver desde ahí.</p>
+      </div>
+      <div class="tl-step">
+        <div class="tl-num">2</div>
+        <h4>Abre una traza y lee el árbol</h4>
+        <p>Una traza sana de un run se ve así — cada fila es un servicio, anidado dentro del que lo llamó:</p>
+        <div class="tl-sub mono" style="font-size:8.3pt; line-height:1.9;">
+          web POST<br/>
+          &nbsp;&nbsp;└─ neo-api POST /api/runs<br/>
+          &nbsp;&nbsp;&nbsp;&nbsp;├─ neo-api VectorService/Search → neo-vector search<br/>
+          &nbsp;&nbsp;&nbsp;&nbsp;└─ neo-api ModelService/Decide → neo-model Decide
+        </div>
+      </div>
+    </div>
+
+    <div class="callout ok">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 13 4 4L19 7"/></svg>
+      <div><b>Tip:</b> si una traza de <code>POST /api/runs</code> aparece con un solo span (sin hijos), es normal: ese span es solo "se encoló el run". El run en sí corre después, en otra traza propia — búscala por tiempo o por el <code>run_id</code>.</div>
+    </div>
+
+    <div class="section-head" style="margin-top:14px;">
+      <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>
+      <div>
+        <div class="kicker">Soporte</div>
+        <h2>Problemas comunes</h2>
+        <p class="lede">Lo que más probablemente te vas a encontrar, y qué hacer en cada caso.</p>
+      </div>
+    </div>
+
+    <div class="issue">
+      <h5>"Arquitectura en vivo" muestra neo-vector o neo-model en rojo</h5>
+      <p><b>Qué pasa:</b> <code>/healthz</code> solo marca a PostgreSQL como crítico — si neo-vector o neo-model no responden, neo-api sigue funcionando pero no puede completar runs nuevos.</p>
+      <p><b>Qué hacer:</b> revisa los logs de ese servicio (<code>docker compose logs neo-model</code>); lo más común es que siga cargando el modelo (hasta 2 minutos en frío) o que Docker Desktop se haya caído.</p>
+    </div>
+
+    <div class="issue">
+      <div class="errline">context deadline exceeded</div>
+      <h5>Un run se queda "pensando" mucho tiempo y al final sale con error</h5>
+      <p><b>Qué pasa:</b> cada run tiene 30 segundos para terminar. neo-model sirve el modelo en una sola instancia de GPU, así que si varias personas corren runs al mismo tiempo, se forma una fila — medido: con 10 usuarios simultáneos, el 81% de los runs expira.</p>
+      <p><b>Qué hacer:</b> por ahora, evita correr muchos runs a la vez desde el Playground. Escalar esto a más usuarios es una decisión pendiente (ver el reporte de capacidad aparte).</p>
+    </div>
+
+    <div class="issue">
+      <h5>Docker Desktop no arranca, o un rebuild no se refleja</h5>
+      <p><b>Qué hacer:</b> si <code>docker info</code> falla, cierra Docker Desktop por completo y vuelve a abrirlo (espera 20-30s). Si reconstruiste código pero el contenedor sigue con el comportamiento viejo, es porque <code>up -d --no-deps</code> solo recrea con la imagen que ya existe — necesitas <code>docker compose build &lt;servicio&gt;</code> primero.</p>
+    </div>
+  </div>
+  <div class="page-footer"><span>Manual NEO Workflows</span><span>7 · Observabilidad y soporte</span></div>
+</div>
+
+<!-- ============ CIERRE ============ -->
+<div class="page dark-sheet closing">
+  <div class="grid-texture"></div>
+  <div style="position:relative; z-index:2;">
+    <div class="mark-big"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg></div>
+    <h2>Eso es NEO Workflows.</h2>
+    <p>Levanta el stack, corre un run, lee la cascada, entrena un ajuste si lo necesitas, y revisa las trazas cuando algo no cuadre. El resto del detalle técnico (contratos, versiones, hallazgos de cada fase) vive en <code style="color:#dfe2ff;">CLAUDE.md</code>, en la raíz del repo.</p>
+    <div class="foot-org">NEO Workflows · Proyecto personal de Oscar D. Morelos R.</div>
+  </div>
+</div>
+
+</body>
+</html>

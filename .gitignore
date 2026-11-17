@@ -11,8 +11,8 @@ vector/target/
 
 # Python
 model/.venv/
-model/**/__pycache__/
-model/**/*.pyc
+__pycache__/
+*.pyc
 model/.pytest_cache/
 **/*.lora/
 **/adapters/
@@ -24,7 +24,9 @@ front/dist/
 front/.vite/
 
 # Documentación/diagramas generados localmente
-docs_build/node_modules/
+# (docs/manual: se versiona la fuente y el PDF; lo demás lo regenera build.js)
+docs/manual/manual.embedded.html
+docs/manual/verify/
 .archify/
 
 # Datos y benchmarks generados localmente
